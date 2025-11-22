@@ -97,14 +97,12 @@ def call_haiku(messages):
     client = Anthropic()
     model = 'claude-haiku-4-5-20251001'
 
-    # Build structured messages array for the Messages API
+    # Build structured messages array for the Messages API (only user/assistant roles)
     msgs = []
-    if SYSTEM_PROMPT:
-        msgs.append({"role": "system", "content": SYSTEM_PROMPT})
-
     for m in messages:
         role = m.get('role')
         content = m.get('content', '')
+        # map memory -> user (keep content as a short fact)
         if role == 'memory':
             msgs.append({"role": "user", "content": "Memory: " + content})
         elif role == 'user':
@@ -112,36 +110,18 @@ def call_haiku(messages):
         elif role == 'assistant':
             msgs.append({"role": "assistant", "content": content})
 
-    # Call the Anthropic Messages API (use same shape as your snippet)
-    message = client.messages.create(
+    # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
+    response = client.messages.create(
         max_tokens=1024,
         temperature=0.4,
         messages=msgs,
         model=model,
+        system=SYSTEM_PROMPT,
     )
 
-    # Prefer the attribute 'content' on the returned message (message.content in your example)
-    # Fall back to common variants if necessary.
-    # message may be an object with .content, or a dict with 'message'/'content' keys.
-    out = None
-    out = getattr(message, 'content', None)
-    if out is None:
-        # try message.message.content
-        msg_obj = getattr(message, 'message', None)
-        if msg_obj is not None:
-            out = getattr(msg_obj, 'content', None) if not isinstance(msg_obj, dict) else msg_obj.get('content')
-    if out is None and isinstance(message, dict):
-        out = message.get('content') or (message.get('message', {}) and message.get('message').get('content'))
+    print(response.content)
 
-    # If the content is a list, extract first element's text
-    if isinstance(out, list):
-        first = out[0]
-        if isinstance(first, dict):
-            out = first.get('text') or first.get('content')
-        else:
-            out = str(first)
-
-    return (out or '').strip()
+    return ''.strip()
 
 
 def build_summary(messages_chunk):
