@@ -1,5 +1,39 @@
 import os
 from db import get_messages, get_conversation, insert_message
+from anthropic import Anthropic
+
+# Hardcoded system prompt (interviewer persona). Must be concise by design; model should follow rules.
+SYSTEM_PROMPT =  """
+You are an interviewer at Google for a technical software engineering new grad role.
+Simulate a realistic LeetCode-style interview.
+
+INTERVIEW FLOW RULES:
+1. Present one coding problem.
+2. Discuss a test case and think through it together.
+3. Ask them to give a high-level plan before coding.
+4. Once they provide a plan, tell them to implement it.
+5. After they code, walk through a test case.
+6. Ask 1–2 follow-up or optimization questions.
+
+BEHAVIOR RULES:
+- Keep responses concise. (Strict requirement)
+- Never write code for the interviewee.
+- Ask clarifying questions when needed.
+- Give feedback without giving the solution.
+- Encourage structure and communication.
+- Do NOT mention common named solutions (e.g., “two pointers”, “sliding window”).
+- Only guide; do not tutor.
+- If the candidate is wrong, nudge them to reason deeper.
+- Never solve the problem for them.
+
+CREDIT-SAVING RULE:
+- Your responses MUST be concise and under 200 words.
+- Do not expand unnecessarily.
+- Do not restate large sections of the problem unless required.
+
+Your goal:
+Simulate the interviewer as realistically and concisely as possible.
+"""
 
 TOKEN_BUDGET = int(os.environ.get('TOKEN_BUDGET', '8192'))
 
@@ -56,15 +90,58 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
 
 
 def call_haiku(messages):
-    """Stub for calling Claude Haiku. Replace with real API call during integration.
-    Expects messages as list of {role, content} dicts in chronological order.
+    """Call Anthropic (Claude) via the `anthropic` package using the hardcoded system prompt.
+    Messages must be a chronological list of dicts: {role, content}.
     Returns assistant text.
     """
-    # For now, return an echo of the last user message with a prefix.
-    last_user = next((m for m in reversed(messages) if m['role'] == 'user'), None)
-    if last_user:
-        return "Assistant reply (demo): " + last_user.get('content', '')
-    return "Hello, I'm DemoAssistant."
+    client = Anthropic()
+    model = 'claude-haiku-4-5-20251001'
+
+    # Build structured messages array for the Messages API
+    msgs = []
+    if SYSTEM_PROMPT:
+        msgs.append({"role": "system", "content": SYSTEM_PROMPT})
+
+    for m in messages:
+        role = m.get('role')
+        content = m.get('content', '')
+        if role == 'memory':
+            msgs.append({"role": "user", "content": "Memory: " + content})
+        elif role == 'user':
+            msgs.append({"role": "user", "content": content})
+        elif role == 'assistant':
+            msgs.append({"role": "assistant", "content": content})
+
+    # Call the Anthropic Messages API (use same shape as your snippet)
+    message = client.messages.create(
+        max_tokens=1024,
+        temperature=0.4,
+        messages=msgs,
+        model=model,
+    )
+
+    # Prefer the attribute 'content' on the returned message (message.content in your example)
+    # Fall back to common variants if necessary.
+    # message may be an object with .content, or a dict with 'message'/'content' keys.
+    out = None
+    out = getattr(message, 'content', None)
+    if out is None:
+        # try message.message.content
+        msg_obj = getattr(message, 'message', None)
+        if msg_obj is not None:
+            out = getattr(msg_obj, 'content', None) if not isinstance(msg_obj, dict) else msg_obj.get('content')
+    if out is None and isinstance(message, dict):
+        out = message.get('content') or (message.get('message', {}) and message.get('message').get('content'))
+
+    # If the content is a list, extract first element's text
+    if isinstance(out, list):
+        first = out[0]
+        if isinstance(first, dict):
+            out = first.get('text') or first.get('content')
+        else:
+            out = str(first)
+
+    return (out or '').strip()
 
 
 def build_summary(messages_chunk):
