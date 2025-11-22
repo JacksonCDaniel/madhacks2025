@@ -1,3 +1,4 @@
+# python
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -106,6 +107,7 @@ HTML_TEMPLATE = """
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
         }
+        .small-btn { width:auto; padding:12px 16px; }
         button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
@@ -157,21 +159,21 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <h1>🎙️ Text to Speech & Speech to Text</h1>
-        <p class="subtitle">Enter text and convert to speech, or upload audio to transcribe</p>
-        
+        <p class="subtitle">Enter text and convert to speech, or record/transcribe from your microphone</p>
+
         <textarea id="textInput" placeholder="Type or paste your text here..." maxlength="5000"></textarea>
         <div class="char-count">
             <span id="charCount">0</span> / 5000 characters
         </div>
-        
+
         <button id="submitBtn" onclick="generateSpeech()">Generate Speech</button>
-        
+
         <div class="loading" id="loading">
             <p>🔊 Generating audio...</p>
         </div>
-        
+
         <div class="error" id="error"></div>
-        
+
         <div class="audio-container" id="audioContainer">
             <p style="color: #333; margin-bottom: 10px;">✅ Audio generated successfully!</p>
             <audio id="audioPlayer" controls></audio>
@@ -179,11 +181,19 @@ HTML_TEMPLATE = """
 
         <div class="stt-section">
             <hr style="margin:28px 0; border: none; height:1px; background:#eee;" />
-            <label for="audioFile" style="display:block; margin-bottom:8px; color:#333; font-weight:600;">Upload audio to transcribe</label>
-            <div class="stt-controls">
-                <input id="audioFile" type="file" accept="audio/*" />
-                <button id="transcribeBtn" onclick="transcribeAudio()" style="width:auto; padding:12px 16px;">Transcribe Audio</button>
+            <label style="display:block; margin-bottom:8px; color:#333; font-weight:600;">Record from microphone to transcribe</label>
+
+            <div class="stt-controls" style="margin-bottom:10px;">
+                <button id="recordBtn" class="small-btn" onclick="toggleRecording()">Start Recording</button>
+                <button id="transcribeBtn" class="small-btn" onclick="transcribeRecorded()" disabled>Transcribe Recording</button>
+                <span id="recStatus" class="small-muted" style="margin-left:8px;">Not recording</span>
             </div>
+
+            <div id="previewContainer" style="display:none; margin-top:8px;">
+                <label style="display:block; color:#333; font-weight:600;">Recording preview</label>
+                <audio id="sttPreview" controls></audio>
+            </div>
+
             <div class="loading" id="sttLoading">
                 <p>📝 Transcribing audio...</p>
             </div>
@@ -193,6 +203,14 @@ HTML_TEMPLATE = """
                 <div id="transcriptText" style="white-space:pre-wrap; color:#111; background:#fff; padding:12px; border-radius:8px;"></div>
                 <div id="transcriptMeta" class="small-muted" style="margin-top:8px;"></div>
                 <pre id="segmentsPre" style="margin-top:12px; max-height:200px; overflow:auto; background:#fafafa; padding:10px; border-radius:8px; display:none;"></pre>
+            </div>
+
+            <div style="margin-top:16px; color:#666; font-size:13px;">
+                Or upload a file:
+                <div class="stt-controls" style="margin-top:8px;">
+                    <input id="audioFile" type="file" accept="audio/*" />
+                    <button id="uploadTranscribeBtn" class="small-btn" onclick="transcribeAudio()">Transcribe Uploaded File</button>
+                </div>
             </div>
         </div>
     </div>
@@ -206,6 +224,13 @@ HTML_TEMPLATE = """
         const audioContainer = document.getElementById('audioContainer');
         const audioPlayer = document.getElementById('audioPlayer');
 
+        // STT elements
+        const recordBtn = document.getElementById('recordBtn');
+        const transcribeBtn = document.getElementById('transcribeBtn');
+        const recStatus = document.getElementById('recStatus');
+        const sttPreview = document.getElementById('sttPreview');
+        const previewContainer = document.getElementById('previewContainer');
+
         // Update character count
         textInput.addEventListener('input', function() {
             charCount.textContent = this.value.length;
@@ -213,21 +238,21 @@ HTML_TEMPLATE = """
 
         async function generateSpeech() {
             const text = textInput.value.trim();
-            
+
             // Validation
             if (!text) {
                 showError('Please enter some text');
                 return;
             }
-            
+
             // Hide previous results
             error.classList.remove('show');
             audioContainer.classList.remove('show');
-            
+
             // Show loading
             loading.classList.add('show');
             submitBtn.disabled = true;
-            
+
             try {
                 const response = await fetch('/tts', {
                     method: 'POST',
@@ -236,25 +261,25 @@ HTML_TEMPLATE = """
                     },
                     body: JSON.stringify({ text: text })
                 });
-                
+
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Failed to generate speech');
                 }
-                
+
                 // Get audio blob
                 const audioBlob = await response.blob();
                 const audioUrl = URL.createObjectURL(audioBlob);
-                
+
                 // Set audio source and show player
                 audioPlayer.src = audioUrl;
                 audioContainer.classList.add('show');
-                
+
                 // Auto-play the audio
                 audioPlayer.play().catch(err => {
                     console.log('Auto-play prevented:', err);
                 });
-                
+
             } catch (err) {
                 showError(err.message);
             } finally {
@@ -276,9 +301,9 @@ HTML_TEMPLATE = """
             }
         });
 
-        // --- STT JS ---
+        // --- STT (file upload) JS ---
         const audioFileInput = document.getElementById('audioFile');
-        const transcribeBtn = document.getElementById('transcribeBtn');
+        const uploadTranscribeBtn = document.getElementById('uploadTranscribeBtn');
         const sttLoading = document.getElementById('sttLoading');
         const sttError = document.getElementById('sttError');
         const transcriptContainer = document.getElementById('transcriptContainer');
@@ -301,11 +326,11 @@ HTML_TEMPLATE = """
             transcriptMeta.textContent = '';
 
             sttLoading.classList.add('show');
-            transcribeBtn.disabled = true;
+            uploadTranscribeBtn.disabled = true;
 
             try {
                 const fd = new FormData();
-                fd.append('audio', file);
+                fd.append('audio', file, file.name);
 
                 const resp = await fetch('/stt', {
                     method: 'POST',
@@ -329,7 +354,7 @@ HTML_TEMPLATE = """
                 sttShowError(err.message);
             } finally {
                 sttLoading.classList.remove('show');
-                transcribeBtn.disabled = false;
+                uploadTranscribeBtn.disabled = false;
             }
         }
 
@@ -337,6 +362,116 @@ HTML_TEMPLATE = """
             sttError.textContent = '❌ ' + message;
             sttError.classList.add('show');
         }
+
+        // --- Microphone recording and STT ---
+        let mediaRecorder = null;
+        let recordedChunks = [];
+
+        function updateRecordUI(isRecording) {
+            if (isRecording) {
+                recordBtn.textContent = 'Stop Recording';
+                recStatus.textContent = 'Recording...';
+                recordBtn.style.background = '#c0392b';
+            } else {
+                recordBtn.textContent = 'Start Recording';
+                recStatus.textContent = 'Not recording';
+                recordBtn.style.background = '';
+            }
+        }
+
+        async function toggleRecording() {
+            // If currently recording, stop
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                updateRecordUI(false);
+                return;
+            }
+
+            // Start recording
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                sttShowError('Microphone not supported in this browser');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                recordedChunks = [];
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) {
+                        recordedChunks.push(e.data);
+                    }
+                };
+                mediaRecorder.onstop = () => {
+                    // Create blob and show preview
+                    const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+                    const url = URL.createObjectURL(blob);
+                    sttPreview.src = url;
+                    previewContainer.style.display = 'block';
+                    transcribeBtn.disabled = false;
+
+                    // Stop all tracks to release microphone
+                    stream.getTracks().forEach(t => t.stop());
+                };
+                mediaRecorder.start();
+                updateRecordUI(true);
+                transcribeBtn.disabled = true;
+            } catch (err) {
+                sttShowError('Could not start microphone: ' + err.message);
+            }
+        }
+
+        async function transcribeRecorded() {
+            if (recordedChunks.length === 0) {
+                sttShowError('No recording available. Press Start Recording first.');
+                return;
+            }
+
+            // Prepare UI
+            sttError.classList.remove('show');
+            transcriptContainer.classList.remove('show');
+            segmentsPre.style.display = 'none';
+            transcriptText.textContent = '';
+            transcriptMeta.textContent = '';
+
+            sttLoading.classList.add('show');
+            transcribeBtn.disabled = true;
+
+            try {
+                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+                const fd = new FormData();
+                // Name the file so server sees a filename and type
+                fd.append('audio', blob, 'recording.webm');
+
+                const resp = await fetch('/stt', { method: 'POST', body: fd });
+
+                if (!resp.ok) {
+                    const data = await resp.json().catch(() => ({ error: 'unknown' }));
+                    throw new Error(data.error || 'Transcription failed');
+                }
+
+                const data = await resp.json();
+                transcriptText.textContent = data.text || '';
+                transcriptMeta.textContent = data.duration ? `Duration: ${data.duration}ms` : '';
+                if (data.segments && Array.isArray(data.segments) && data.segments.length) {
+                    segmentsPre.style.display = 'block';
+                    segmentsPre.textContent = JSON.stringify(data.segments, null, 2);
+                }
+                transcriptContainer.classList.add('show');
+            } catch (err) {
+                sttShowError(err.message);
+            } finally {
+                sttLoading.classList.remove('show');
+                transcribeBtn.disabled = false;
+            }
+        }
+
+        // Cleanup when navigating away (release mic if necessary)
+        window.addEventListener('beforeunload', () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+        });
     </script>
   </body>
   </html>
