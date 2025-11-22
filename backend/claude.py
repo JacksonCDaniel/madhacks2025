@@ -1,6 +1,7 @@
 import os
 from db import get_messages, get_conversation, insert_message
 from anthropic import Anthropic
+from anthropic.types import TextBlock
 
 # Hardcoded system prompt (interviewer persona). Must be concise by design; model should follow rules.
 SYSTEM_PROMPT =  """
@@ -119,9 +120,13 @@ def call_haiku(messages):
         system=SYSTEM_PROMPT,
     )
 
-    print(response.content)
+    blocks = []
 
-    return ''.strip()
+    for b in response.content:
+        if isinstance(b, TextBlock):
+            blocks.append(b.text)
+
+    return '\n\n'.join(blocks).strip()
 
 
 def build_summary(messages_chunk):
