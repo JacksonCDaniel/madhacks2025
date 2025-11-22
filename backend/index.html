@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Conversation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .btn-small:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+            gap: 12px;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .message-content {
+            max-width: 70%;
+            background: white;
+            padding: 12px 16px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message-actions {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .message-btn {
+            padding: 4px 12px;
+            font-size: 12px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .message-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .message-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .message.user .message-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .message.user .message-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: none;
+            min-height: 50px;
+            max-height: 150px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .send-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 80px;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 8px 16px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            animation: fadeIn 0.3s;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            border-left-color: #dc3545;
+        }
+
+        .status.success {
+            background: #d4edda;
+            border-left-color: #28a745;
+        }
+
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: #999;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        audio {
+            width: 100%;
+            height: 32px;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ AI Conversation</h1>
+            <div class="header-actions">
+                <button class="btn-small" onclick="app.newConversation()">New Chat</button>
+                <button class="btn-small" onclick="app.exportConversation()">Export</button>
+            </div>
+        </div>
+
+        <div class="messages-container" id="messages">
+            <div class="status">Starting new conversation...</div>
+        </div>
+
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea
+                    id="messageInput"
+                    placeholder="Type your message here..."
+                    onkeydown="app.handleKeyDown(event)"
+                ></textarea>
+                <button class="send-btn" id="sendBtn" onclick="app.sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:5000';
+
+        const app = {
+            conversationId: null,
+            messages: [],
+            audioCache: {},
+
+            init() {
+                // Try to restore conversation from localStorage
+                const saved = localStorage.getItem('conversationId');
+                if (saved) {
+                    this.conversationId = saved;
+                    this.loadMessages();
+                } else {
+                    this.createConversation();
+                }
+            },
+
+            async createConversation() {
+                try {
+                    const response = await fetch(`${API_BASE}/conversations`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: 'web-user',
+                            system_message: 'You are a helpful AI assistant. Be concise and friendly.',
+                        })
+                    });
+
+                    if (!response.ok) throw new Error('Failed to create conversation');
+
+                    const data = await response.json();
+                    this.conversationId = data.conversation_id;
+                    localStorage.setItem('conversationId', this.conversationId);
+                    this.showStatus('New conversation created!', 'success');
+                    this.messages = [];
+                    this.render();
+                } catch (error) {
+                    this.showStatus('Error creating conversation: ' + error.message, 'error');
+                }
+            },
+
+            async loadMessages() {
+                try {
+                    const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/messages?limit=1000`);
+
+                    if (!response.ok) {
+                        // Conversation not found, create new one
+                        this.createConversation();
+                        return;
+                    }
+
+                    const data = await response.json();
+                    this.messages = data.messages;
+                    this.render();
+                    this.showStatus('Conversation loaded', 'success');
+                } catch (error) {
+                    this.showStatus('Error loading messages: ' + error.message, 'error');
+                    this.createConversation();
+                }
+            },
+
+            async sendMessage() {
+                const input = document.getElementById('messageInput');
+                const content = input.value.trim();
+
+                if (!content) return;
+                if (!this.conversationId) {
+                    this.showStatus('No active conversation', 'error');
+                    return;
+                }
+
+                // Disable input
+                input.disabled = true;
+                document.getElementById('sendBtn').disabled = true;
+
+                // Add user message to UI immediately
+                const userMsg = {
+                    id: 'temp-' + Date.now(),
+                    role: 'user',
+                    content: content,
+                    created_at: new Date().toISOString(),
+                    metadata: {}
+                };
+                this.messages.push(userMsg);
+                this.render();
+                input.value = '';
+
+                // Show typing indicator
+                this.showTyping();
+
+                try {
+                    const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/messages`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            role: 'user',
+                            content: content,
+                            response_mode: 'sync'
+                        })
+                    });
+
+                    if (!response.ok) throw new Error('Failed to send message');
+
+                    const data = await response.json();
+
+                    // Replace temp message and add assistant response
+                    this.messages = this.messages.filter(m => !m.id.startsWith('temp-'));
+
+                    // Reload messages to get the full conversation
+                    await this.loadMessages();
+
+                } catch (error) {
+                    this.showStatus('Error sending message: ' + error.message, 'error');
+                } finally {
+                    this.hideTyping();
+                    input.disabled = false;
+                    document.getElementById('sendBtn').disabled = false;
+                    input.focus();
+                }
+            },
+
+            async playTTS(messageId, button) {
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔊 Loading...';
+
+                    const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/tts`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message_id: messageId,
+                            response_mode: 'sync'
+                        })
+                    });
+
+                    if (!response.ok) throw new Error('TTS failed');
+
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+
+                    // Store in cache
+                    this.audioCache[messageId] = audioUrl;
+
+                    // Add audio player to message
+                    const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                    if (messageEl) {
+                        let audioEl = messageEl.querySelector('audio');
+                        if (!audioEl) {
+                            audioEl = document.createElement('audio');
+                            audioEl.controls = true;
+                            messageEl.querySelector('.message-content').appendChild(audioEl);
+                        }
+                        audioEl.src = audioUrl;
+                        audioEl.play();
+                    }
+
+                    button.textContent = '🔊 Play';
+                } catch (error) {
+                    this.showStatus('TTS error: ' + error.message, 'error');
+                    button.textContent = '🔊 TTS';
+                } finally {
+                    button.disabled = false;
+                }
+            },
+
+            async exportConversation() {
+                if (!this.conversationId) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/export`);
+                    if (!response.ok) throw new Error('Export failed');
+
+                    const data = await response.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `conversation-${this.conversationId}.json`;
+                    a.click();
+
+                    this.showStatus('Conversation exported!', 'success');
+                } catch (error) {
+                    this.showStatus('Export error: ' + error.message, 'error');
+                }
+            },
+
+            newConversation() {
+                if (confirm('Start a new conversation? Current conversation will be saved.')) {
+                    localStorage.removeItem('conversationId');
+                    this.conversationId = null;
+                    this.messages = [];
+                    this.audioCache = {};
+                    this.createConversation();
+                }
+            },
+
+            render() {
+                const container = document.getElementById('messages');
+                container.innerHTML = '';
+
+                this.messages.forEach(msg => {
+                    if (msg.role === 'system' || msg.role === 'memory') return; // Skip system messages
+
+                    const msgEl = document.createElement('div');
+                    msgEl.className = `message ${msg.role}`;
+                    msgEl.setAttribute('data-message-id', msg.id);
+
+                    const avatar = document.createElement('div');
+                    avatar.className = 'message-avatar';
+                    avatar.textContent = msg.role === 'user' ? 'U' : 'AI';
+
+                    const content = document.createElement('div');
+                    content.className = 'message-content';
+
+                    const text = document.createElement('div');
+                    text.textContent = msg.content || '...';
+                    content.appendChild(text);
+
+                    // Add TTS button for assistant messages
+                    if (msg.role === 'assistant' && msg.content) {
+                        const actions = document.createElement('div');
+                        actions.className = 'message-actions';
+
+                        const ttsBtn = document.createElement('button');
+                        ttsBtn.className = 'message-btn';
+                        ttsBtn.textContent = '🔊 TTS';
+                        ttsBtn.onclick = () => this.playTTS(msg.id, ttsBtn);
+                        actions.appendChild(ttsBtn);
+
+                        content.appendChild(actions);
+                    }
+
+                    msgEl.appendChild(avatar);
+                    msgEl.appendChild(content);
+                    container.appendChild(msgEl);
+                });
+
+                // Scroll to bottom
+                container.scrollTop = container.scrollHeight;
+            },
+
+            showTyping() {
+                const container = document.getElementById('messages');
+                const typing = document.createElement('div');
+                typing.id = 'typing-indicator';
+                typing.className = 'message assistant';
+                typing.innerHTML = `
+                    <div class="message-avatar">AI</div>
+                    <div class="message-content">
+                        <div class="typing-indicator">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(typing);
+                container.scrollTop = container.scrollHeight;
+            },
+
+            hideTyping() {
+                const typing = document.getElementById('typing-indicator');
+                if (typing) typing.remove();
+            },
+
+            showStatus(message, type = 'info') {
+                const container = document.getElementById('messages');
+                const status = document.createElement('div');
+                status.className = `status ${type}`;
+                status.textContent = message;
+                container.appendChild(status);
+
+                setTimeout(() => status.remove(), 3000);
+            },
+
+            handleKeyDown(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    this.sendMessage();
+                }
+            }
+        };
+
+        // Initialize app when page loads
+        window.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+</html>
+

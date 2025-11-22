@@ -1,309 +1,208 @@
-# from fishaudio import FishAudio
-# from fishaudio.utils import play, save
-#
-# # Initialize client (reads from FISH_API_KEY environment variable)
-# client = FishAudio()
-#
-# # Generate and play audio
-# audio = client.tts.convert(text="Hello, playing from Fish Audio!")
-# play(audio)
-#
-# # Generate and save audio
-# audio = client.tts.convert(text="Saving this audio to a file!")
-# save(audio, "output.mp3")
-
 from dotenv import load_dotenv
 load_dotenv()
 
 import io
 import os
-from flask import Flask, request, send_file, jsonify, render_template_string
+import uuid
+from datetime import datetime
+from flask import Flask, request, send_file, jsonify, Response
+from flask_cors import CORS
+
+# Local modules
+from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages
+from claude import build_trimmed_history, call_haiku, estimate_tokens
+from redis_queue import enqueue_job, get_job
+from tts import synthesize_bytes, synthesize_stream, STREAM_THRESHOLD_CHARS
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Configuration
+DATA_DB_PATH = os.environ.get("DATA_DB_PATH", "./data.db")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "5000"))
-# Default model id for TTS (can be overridden via env var)
-# boe jiden
-# MODEL_ID = os.environ.get('TTS_MODEL_ID', '9b42223616644104a4534968cd612053')
-# dohnny jepp
-# MODEL_ID = os.environ.get('TTS_MODEL_ID', 'fb722cecaf534263b409223e524f3e60')
-# rump himself
-MODEL_ID = os.environ.get('TTS_MODEL_ID', 'e58b0d7efca34eb38d5c4985e378abcb')
+TOKEN_BUDGET = int(os.environ.get("TOKEN_BUDGET", "8192"))
 
-# Import FishAudio
-from fishaudio import FishAudio
+# Initialize DB
+init_db(DATA_DB_PATH)
 
-# Initialize client (reads from FISH_API_KEY environment variable)
-fish_client = FishAudio()
+# Helpers
+def now_iso():
+    return datetime.utcnow().isoformat() + "Z"
 
-def synthesize_mp3_bytes(text: str) -> bytes:
-    # Call the FishAudio TTS
-    audio_obj = fish_client.tts.convert(text=text, reference_id=MODEL_ID)
+@app.route("/health", methods=["GET"])
+def health():
+    # Basic health check
+    db_ok = True
+    redis_ok = True
+    try:
+        # quick DB read
+        _ = get_conversation("non-existent-id")
+    except Exception:
+        db_ok = False
+    try:
+        _ = get_job("non-existent-job-id")
+    except Exception:
+        # get_job may raise if Redis not available
+        redis_ok = False
+    status = {"status": "ok" if db_ok and redis_ok else "degraded", "db": "ok" if db_ok else "error", "redis": "ok" if redis_ok else "error"}
+    return jsonify(status)
 
-    return audio_obj
+@app.route('/conversations', methods=['POST'])
+def create_conversation_endpoint():
+    payload = request.get_json(silent=True) or {}
+    user_id = payload.get('user_id')
+    system_message = payload.get('system_message')
+    metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
+    conv_id = create_conversation(user_id=user_id, system_message=system_message, metadata=metadata)
+    return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
 
+@app.route('/conversations/<conversation_id>', methods=['GET'])
+def get_conversation_endpoint(conversation_id):
+    conv = get_conversation(conversation_id)
+    if not conv:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(conv)
 
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Text to Speech</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            padding: 40px;
-            max-width: 600px;
-            width: 100%;
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        .subtitle {
-            color: #666;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-        textarea {
-            width: 100%;
-            min-height: 150px;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 16px;
-            font-family: inherit;
-            resize: vertical;
-            transition: border-color 0.3s;
-        }
-        textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        .char-count {
-            text-align: right;
-            color: #999;
-            font-size: 12px;
-            margin-top: 5px;
-            margin-bottom: 20px;
-        }
-        button {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        button:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        .audio-container {
-            margin-top: 30px;
-            padding: 20px;
-            background: #f5f5f5;
-            border-radius: 10px;
-            display: none;
-        }
-        .audio-container.show {
-            display: block;
-        }
-        audio {
-            width: 100%;
-            margin-top: 10px;
-        }
-        .error {
-            margin-top: 20px;
-            padding: 15px;
-            background: #fee;
-            border: 1px solid #fcc;
-            border-radius: 10px;
-            color: #c33;
-            display: none;
-        }
-        .error.show {
-            display: block;
-        }
-        .loading {
-            text-align: center;
-            color: #667eea;
-            margin-top: 20px;
-            display: none;
-        }
-        .loading.show {
-            display: block;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎙️ Text to Speech</h1>
-        <p class="subtitle">Enter your text and convert it to speech</p>
-        
-        <textarea id="textInput" placeholder="Type or paste your text here..." maxlength="5000"></textarea>
-        <div class="char-count">
-            <span id="charCount">0</span> / 5000 characters
-        </div>
-        
-        <button id="submitBtn" onclick="generateSpeech()">Generate Speech</button>
-        
-        <div class="loading" id="loading">
-            <p>🔊 Generating audio...</p>
-        </div>
-        
-        <div class="error" id="error"></div>
-        
-        <div class="audio-container" id="audioContainer">
-            <p style="color: #333; margin-bottom: 10px;">✅ Audio generated successfully!</p>
-            <audio id="audioPlayer" controls></audio>
-        </div>
-    </div>
+@app.route('/conversations/<conversation_id>', methods=['DELETE'])
+def delete_conversation_endpoint(conversation_id):
+    deleted = delete_conversation(conversation_id)
+    if not deleted:
+        return jsonify({"error": "not found"}), 404
+    return ('', 204)
 
-    <script>
-        const textInput = document.getElementById('textInput');
-        const charCount = document.getElementById('charCount');
-        const submitBtn = document.getElementById('submitBtn');
-        const loading = document.getElementById('loading');
-        const error = document.getElementById('error');
-        const audioContainer = document.getElementById('audioContainer');
-        const audioPlayer = document.getElementById('audioPlayer');
+@app.route('/conversations/<conversation_id>/messages', methods=['GET'])
+def list_messages_endpoint(conversation_id):
+    since = request.args.get('since')
+    limit = int(request.args.get('limit', '100'))
+    messages = get_messages(conversation_id, since=since, limit=limit)
+    return jsonify({"messages": messages})
 
-        // Update character count
-        textInput.addEventListener('input', function() {
-            charCount.textContent = this.value.length;
-        });
-
-        async function generateSpeech() {
-            const text = textInput.value.trim();
-            
-            // Validation
-            if (!text) {
-                showError('Please enter some text');
-                return;
-            }
-            
-            // Hide previous results
-            error.classList.remove('show');
-            audioContainer.classList.remove('show');
-            
-            // Show loading
-            loading.classList.add('show');
-            submitBtn.disabled = true;
-            
-            try {
-                const response = await fetch('/tts', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ text: text })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to generate speech');
-                }
-                
-                // Get audio blob
-                const audioBlob = await response.blob();
-                const audioUrl = URL.createObjectURL(audioBlob);
-                
-                // Set audio source and show player
-                audioPlayer.src = audioUrl;
-                audioContainer.classList.add('show');
-                
-                // Auto-play the audio
-                audioPlayer.play().catch(err => {
-                    console.log('Auto-play prevented:', err);
-                });
-                
-            } catch (err) {
-                showError(err.message);
-            } finally {
-                loading.classList.remove('show');
-                submitBtn.disabled = false;
-            }
-        }
-
-        function showError(message) {
-            error.textContent = '❌ ' + message;
-            error.classList.add('show');
-        }
-
-        // Allow Enter key to submit (with Shift+Enter for new line)
-        textInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                generateSpeech();
-            }
-        });
-     </script>
-  </body>
-  </html>
- """
-
-@app.route("/")
-def index():
-    """Serve the interactive HTML page."""
-    return render_template_string(HTML_TEMPLATE)
-
-
-@app.route('/tts', methods=['POST'])
-def tts_endpoint():
-    """API endpoint to generate speech from text."""
-
+@app.route('/conversations/<conversation_id>/messages', methods=['POST'])
+def post_message_endpoint(conversation_id):
     if not request.is_json:
         return jsonify({"error": "expected JSON body"}), 400
-
     payload = request.get_json()
-    text = payload.get('text') if isinstance(payload, dict) else None
+    role = payload.get('role', 'user')
+    content = payload.get('content')
+    response_mode = payload.get('response_mode', 'sync')
+    metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
 
-    if not text or not isinstance(text, str) or not text.strip():
-        return jsonify({"error": "text is required"}), 400
-
-    if len(text) > MAX_TEXT_CHARS:
+    if not content or not isinstance(content, str) or not content.strip():
+        return jsonify({"error": "content is required"}), 400
+    if len(content) > MAX_TEXT_CHARS:
         return jsonify({"error": f"text too long (max {MAX_TEXT_CHARS} chars)"}), 413
 
-    try:
-        audio_bytes = synthesize_mp3_bytes(text)
-    except Exception as e:
-        return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
+    # persist caller message
+    msg_id = insert_message(conversation_id=conversation_id, role=role, content=content, metadata=metadata)
 
-    buf = io.BytesIO(audio_bytes)
-    buf.seek(0)
-    # Return as inline audio (not attachment) so it plays in the browser
-    return send_file(buf, mimetype='audio/mpeg', as_attachment=False)
+    # For sync responses, call Claude Haiku immediately (trimmed)
+    if response_mode == 'sync':
+        history = build_trimmed_history(conversation_id, token_budget=TOKEN_BUDGET)
+        try:
+            assistant_text = call_haiku(history)
+        except Exception as e:
+            return jsonify({"error": "assistant call failed", "detail": str(e)}), 500
+        # persist assistant reply
+        assistant_id = insert_message(conversation_id=conversation_id, role='assistant', content=assistant_text, metadata={})
+        assistant_msg = {
+            "id": assistant_id,
+            "role": "assistant",
+            "content": assistant_text,
+            "created_at": now_iso(),
+            "metadata": {}
+        }
+        return jsonify({"assistant_message": assistant_msg}), 200
+    else:
+        # async: enqueue a long_response job
+        job = {
+            "job_id": str(uuid.uuid4()),
+            "type": "long_response",
+            "conversation_id": conversation_id,
+            "message_id": msg_id,
+            "payload": {"trigger_message_id": msg_id, "response_mode": "text"},
+            "created_at": now_iso()
+        }
+        enqueue_job(job)
+        # create placeholder assistant message with pending status
+        placeholder_id = insert_message(conversation_id=conversation_id, role='assistant', content='', metadata={"status": "pending", "job_id": job["job_id"]})
+        return jsonify({"job_id": job["job_id"], "placeholder_message_id": placeholder_id}), 202
 
+@app.route('/conversations/<conversation_id>/tts', methods=['POST'])
+def tts_endpoint(conversation_id):
+    if not request.is_json:
+        return jsonify({"error": "expected JSON body"}), 400
+    payload = request.get_json()
+    message_id = payload.get('message_id')
+    text = payload.get('text')
+    voice = payload.get('voice')
+    response_mode = payload.get('response_mode', 'sync')
+
+    if message_id:
+        msgs = get_messages(conversation_id, limit=1000)
+        message = next((m for m in msgs if m['id'] == message_id), None)
+        if not message:
+            return jsonify({"error": "message_id not found"}), 404
+        text_to_speak = message['content']
+    else:
+        if not text or not isinstance(text, str) or not text.strip():
+            return jsonify({"error": "text is required when message_id is not provided"}), 400
+        text_to_speak = text
+
+    if len(text_to_speak) > MAX_TEXT_CHARS:
+        return jsonify({"error": f"text too long (max {MAX_TEXT_CHARS} chars)"}), 413
+
+    if response_mode == 'sync':
+        # choose convert() for small text, stream() for large
+        try:
+            if len(text_to_speak) <= STREAM_THRESHOLD_CHARS:
+                audio_bytes = synthesize_bytes(text_to_speak)
+                buf = io.BytesIO(audio_bytes)
+                buf.seek(0)
+                return send_file(buf, mimetype='audio/mpeg', as_attachment=False)
+            else:
+                # stream generator
+                def generate():
+                    for chunk in synthesize_stream(text_to_speak):
+                        yield chunk
+                return Response(generate(), mimetype='audio/mpeg')
+        except Exception as e:
+            return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
+    else:
+        # async: enqueue tts job
+        job = {
+            "job_id": str(uuid.uuid4()),
+            "type": "tts",
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "payload": {"text": text_to_speak, "voice": voice},
+            "created_at": now_iso()
+        }
+        enqueue_job(job)
+        return jsonify({"job_id": job["job_id"]}), 202
+
+@app.route('/jobs/<job_id>', methods=['GET'])
+def get_job_endpoint(job_id):
+    job = get_job(job_id)
+    if not job:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(job)
+
+@app.route('/conversations/<conversation_id>/export', methods=['GET'])
+def export_conversation(conversation_id):
+    conv = get_conversation(conversation_id)
+    if not conv:
+        return jsonify({"error": "not found"}), 404
+    messages = get_messages(conversation_id, limit=10000)
+    return jsonify({"conversation": conv, "messages": messages})
+
+@app.route('/')
+def index():
+    # Serve the single-file frontend from the same origin to avoid CORS/file:// issues
+    path = os.path.join(os.path.dirname(__file__), 'index.html')
+    if os.path.exists(path):
+        return send_file(path)
+    return jsonify({"error": "index.html not found"}), 404
 
 if __name__ == '__main__':
-    # Run Flask dev server
     app.run(host='127.0.0.1', port=5000, debug=True)
