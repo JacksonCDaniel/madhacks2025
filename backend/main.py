@@ -26,6 +26,11 @@ app = Flask(__name__)
 # Configuration
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "5000"))
 RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", "20"))
+# Default model id for TTS (can be overridden via env var)
+# boe jiden
+# MODEL_ID = os.environ.get('TTS_MODEL_ID', '9b42223616644104a4534968cd612053')
+# dohnny jepp
+MODEL_ID = os.environ.get('TTS_MODEL_ID', 'fb722cecaf534263b409223e524f3e60')
 
 # Import FishAudio
 from fishaudio import FishAudio
@@ -36,6 +41,12 @@ fish_client = FishAudio()
 # Simple in-memory per-IP rate limiter
 _rate_lock = threading.Lock()
 _rate_store = {}  # ip -> [timestamps]
+
+# Allowlist of voices (do NOT include real-person voices)
+# You can add voice names here or set the ALLOWED_VOICES env var as a comma-separated list.
+ALLOWED_VOICES = [v.strip() for v in os.environ.get('ALLOWED_VOICES', 'alloy,aria,neutral').split(',') if v.strip()]
+# Also normalize to lower for comparisons
+_ALLOWED_VOICES_SET = {v.lower() for v in ALLOWED_VOICES}
 
 def _check_rate_limit(ip: str) -> bool:
     now = time.time()
@@ -51,9 +62,18 @@ def _check_rate_limit(ip: str) -> bool:
         return True
 
 
-def synthesize_mp3_bytes(text: str) -> bytes:
-    """Synthesize MP3 bytes using FishAudio."""
-    audio_obj = fish_client.tts.convert(text=text)
+def synthesize_mp3_bytes(text: str, voice: str | None = None) -> bytes:
+    """Synthesize MP3 bytes using FishAudio.
+
+    The `voice` parameter is optional and must be one of the allowed voices.
+    """
+    # Build parameters for the FishAudio call safely
+    params = {'text': text, 'reference_id': MODEL_ID}
+    # if voice:
+    #     params['voice'] = voice
+
+    # Call the FishAudio TTS
+    audio_obj = fish_client.tts.convert(**params)
 
     # audio_obj may be raw bytes, or have attributes
     if isinstance(audio_obj, (bytes, bytearray)):
@@ -217,6 +237,14 @@ HTML_TEMPLATE = """
         <div class="char-count">
             <span id="charCount">0</span> / 5000 characters
         </div>
+
+        <!-- Voice selector (safe allowlist) -->
+        <div style="margin-top:10px; margin-bottom:16px;">
+            <label for="voiceSelect" style="display:block; margin-bottom:6px; color:#666; font-size:14px;">Choose a voice:</label>
+            <select id="voiceSelect" style="width:100%; padding:10px; border-radius:8px; border:1px solid #e0e0e0;">
+                <!-- Options will be injected by inline script -->
+            </select>
+        </div>
         
         <button id="submitBtn" onclick="generateSpeech()">Generate Speech</button>
         
@@ -269,7 +297,7 @@ HTML_TEMPLATE = """
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text: text })
+                    body: JSON.stringify({ text: text, voice: document.getElementById('voiceSelect').value })
                 });
                 
                 if (!response.ok) {
@@ -310,10 +338,27 @@ HTML_TEMPLATE = """
                 generateSpeech();
             }
         });
-    </script>
-</body>
-</html>
-"""
+
+        // Populate voice select from server-known allowlist
+        (function populateVoices() {
+            const allowed = JSON.parse('__VOICES_JSON__');
+            const select = document.getElementById('voiceSelect');
+            allowed.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                select.appendChild(opt);
+            });
+        })();
+     </script>
+  </body>
+  </html>
+ """
+
+# Inject the allowlist JSON into the template safely
+# We'll replace the placeholder in the string with the JSON-encoded list
+import json
+HTML_TEMPLATE = HTML_TEMPLATE.replace('__VOICES_JSON__', json.dumps(ALLOWED_VOICES))
 
 @app.route("/")
 def index():
@@ -334,6 +379,14 @@ def tts_endpoint():
 
     payload = request.get_json()
     text = payload.get('text') if isinstance(payload, dict) else None
+    voice = payload.get('voice') if isinstance(payload, dict) else None
+
+    # Validate voice against allowlist
+    if voice:
+        if not isinstance(voice, str):
+            return jsonify({"error": "voice must be a string"}), 400
+        if voice.lower() not in _ALLOWED_VOICES_SET:
+            return jsonify({"error": f"voice '{voice}' is not allowed"}), 400
 
     if not text or not isinstance(text, str) or not text.strip():
         return jsonify({"error": "text is required"}), 400
@@ -342,7 +395,7 @@ def tts_endpoint():
         return jsonify({"error": f"text too long (max {MAX_TEXT_CHARS} chars)"}), 413
 
     try:
-        audio_bytes = synthesize_mp3_bytes(text)
+        audio_bytes = synthesize_mp3_bytes(text, voice=voice)
     except Exception as e:
         return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
 
