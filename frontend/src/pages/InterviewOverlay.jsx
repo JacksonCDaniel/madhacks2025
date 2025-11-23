@@ -19,16 +19,19 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const [messageInput, setMessageInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [isSending, setIsSending] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
     const socketRef = useRef(null);
     const messagesListRef = useRef(null);
     const audioRef = useRef(null);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const audioStartedRef = useRef(false);
     const bufferedChunksRef = useRef([]);
     const bufferTimerRef = useRef(null);
     const audioMsgIdRef = useRef(null);
     // Debug: show the hidden audio element visibly on the page
-    const DEBUG_SHOW_AUDIO = true;
+    const DEBUG_SHOW_AUDIO = false;
     const audioDomRef = useRef(null);
     const messagesRef = useRef(messages);
 
@@ -128,11 +131,13 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         createConversation();
     }, [company, voice, details]);
 
-    const sendMessage = async () => {
-        if (!messageInput.trim() || !conversationId || isSending) return;
+    const sendMessage = async (overrideContent) => {
+        const raw = overrideContent !== undefined ? overrideContent : messageInput;
+        if (!raw || !raw.trim() || !conversationId || isSending) return;
 
-        const content = messageInput.trim();
-        setMessageInput("");
+        const content = raw.trim();
+        // clear the input only when we used the input field
+        if (overrideContent === undefined) setMessageInput("");
         setIsSending(true);
 
         // Add user message
@@ -189,6 +194,68 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         } finally {
             setIsSending(false);
         }
+    };
+
+    // Recording helpers for SST integration
+    const startRecording = async () => {
+        if (!navigator.mediaDevices || isRecording) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunksRef.current = [];
+            const mr = new MediaRecorder(stream);
+            mediaRecorderRef.current = mr;
+
+            mr.addEventListener('dataavailable', (e) => {
+                if (e.data && e.data.size) audioChunksRef.current.push(e.data);
+            });
+
+            mr.addEventListener('stop', async () => {
+                setIsRecording(false);
+                // Stop all tracks
+                try { stream.getTracks().forEach(t => t.stop()); } catch (err) { console.debug('stop tracks error', err); }
+
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                // Send to backend SST endpoint as form file
+                try {
+                    const form = new FormData();
+                    // filename can be .webm; backend will read bytes regardless
+                    form.append('file', blob, 'recording.webm');
+                    const res = await fetch(`${API_BASE}/sst`, {
+                        method: 'POST',
+                        body: form
+                    });
+                    if (!res.ok) {
+                        const text = await res.text();
+                        throw new Error(`SST failed: ${res.status} ${text}`);
+                    }
+                    const data = await res.json();
+                    const recognized = data?.text || '';
+                    if (recognized && recognized.trim()) {
+                        // Use recognized text as the message input and send to chatbot
+                        await sendMessage(recognized.trim());
+                    }
+                } catch (err) {
+                    console.error('SST error', err);
+                } finally {
+                    audioChunksRef.current = [];
+                    mediaRecorderRef.current = null;
+                }
+            });
+
+            mr.start();
+            setIsRecording(true);
+        } catch (err) {
+            console.error('Failed to start recording', err);
+            setIsRecording(false);
+        }
+    };
+
+    const stopRecording = () => {
+        const mr = mediaRecorderRef.current;
+        if (mr && mr.state !== 'inactive') {
+            try { mr.stop(); } catch (e) { console.debug('stop record error', e); }
+        }
+        setIsRecording(false);
     };
 
     const stopAudioPlayback = () => {
@@ -427,7 +494,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 </div>
 
                 <div className="right-side">
-                    <div className="ide-wrapper">
+                    <div className="ide-wrapper" style={{ marginRight: chatOpen ? 350 : 48 }}>
                         <div className="ide-container">
                             <Editor
                                 height="700px"
@@ -444,17 +511,19 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                             />
                         </div>
                     </div>
-            
-                    <motion.div 
-                        className="chat-panel"
-                        initial={false}
-                        animate={{ width: chatOpen ? 350 : 300}}
-                        transition={{ duration: 0.25 }}
-                        >
-                        <div className="chat-header">
-                            {chatOpen && <h2 className="chat-title">Interviewer Chatlog</h2>}
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                {/* Audio stop button - active only while playing */}
+                </div>
+
+                <motion.div 
+                    className="chat-panel"
+                    initial={false}
+                    animate={{ width: chatOpen ? 350 : 48}}
+                    transition={{ duration: 0.25 }}
+                    >
+                    <div className="chat-header">
+                        {chatOpen && <h2 className="chat-title">Interviewer Chatlog</h2>}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            {/* Audio stop button - show only when the chat is open */}
+                            {chatOpen && (
                                 <button
                                     className={"audio-btn " + (isPlayingAudio ? 'playing' : '')}
                                     onClick={() => { if (isPlayingAudio) stopAudioPlayback(); }}
@@ -463,77 +532,85 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                                 >
                                     {isPlayingAudio ? 'Stop' : 'Audio'}
                                 </button>
+                            )}
+                            <button
+                                onClick={() => setChatOpen(!chatOpen)}>
+                                {chatOpen ? "X" : <MessageSquare />}
+                            </button>
+                        </div>
+                    </div>
+
+                    {chatOpen && (
+                        <div className="chat-container">
+                            <div className="messages-list" ref={messagesListRef}>
+                                {messages
+                                    .filter(msg => {
+                                        // Hide the assistant placeholder message while
+                                        // it's streaming with no content yet to avoid
+                                        // showing an empty message above the typing indicator.
+                                        if (msg.role === 'assistant' && msg.isStreaming && !msg.content) {
+                                            return false;
+                                        }
+                                        return true;
+                                    })
+                                    .map(msg => (
+                                        <div 
+                                            key={msg.id} 
+                                            className={msg.role === 'user' ? 'user-container' : 'ai-container'}
+                                        >
+                                            <div className="message-avatar">
+                                                {msg.role === 'user' ? 'U' : 'AI'}
+                                            </div>
+                                            <div className="message-content">
+                                                {msg.content ? msg.content : null}
+                                            </div>
+                                        </div>
+                                    ))}
+                                
+                                {isTyping && (
+                                    <div className="ai-container">
+                                        <div className="message-avatar">AI</div>
+                                        <div className="message-content">
+                                            <div className="typing-indicator">
+                                                <span></span>
+                                                <span></span>
+                                                <span></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* spacer element removed: we scroll the container directly */}
+                            </div>
+
+                            <div className="input-container">
+                                <textarea
+                                    value={messageInput}
+                                    onChange={(e) => setMessageInput(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    placeholder="Type your message..."
+                                    disabled={isSending}
+                                    rows={2}
+                                />
                                 <button
-                                    onClick={() => setChatOpen(!chatOpen)}>
-                                    {chatOpen ? "X" : <MessageSquare />}
+                                    className={"mic-btn " + (isRecording ? 'recording' : '')}
+                                    onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
+                                    title={isRecording ? 'Stop recording' : 'Record'}
+                                    type="button"
+                                >
+                                    {isRecording ? 'Stop' : 'Rec'}
+                                </button>
+                                <button 
+                                    onClick={() => sendMessage()}
+                                    disabled={isSending || !messageInput.trim()}
+                                    className="send-btn"
+                                >
+                                    Send
                                 </button>
                             </div>
                         </div>
-
-                        {chatOpen && (
-                            <div className="chat-container">
-                                <div className="messages-list" ref={messagesListRef}>
-                                    {messages
-                                        .filter(msg => {
-                                            // Hide the assistant placeholder message while
-                                            // it's streaming with no content yet to avoid
-                                            // showing an empty message above the typing indicator.
-                                            if (msg.role === 'assistant' && msg.isStreaming && !msg.content) {
-                                                return false;
-                                            }
-                                            return true;
-                                        })
-                                        .map(msg => (
-                                            <div 
-                                                key={msg.id} 
-                                                className={msg.role === 'user' ? 'user-container' : 'ai-container'}
-                                            >
-                                                <div className="message-avatar">
-                                                    {msg.role === 'user' ? 'U' : 'AI'}
-                                                </div>
-                                                <div className="message-content">
-                                                    {msg.content ? msg.content : null}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    
-                                    {isTyping && (
-                                        <div className="ai-container">
-                                            <div className="message-avatar">AI</div>
-                                            <div className="message-content">
-                                                <div className="typing-indicator">
-                                                    <span></span>
-                                                    <span></span>
-                                                    <span></span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {/* spacer element removed: we scroll the container directly */}
-                                </div>
-
-                                <div className="input-container">
-                                    <textarea
-                                        value={messageInput}
-                                        onChange={(e) => setMessageInput(e.target.value)}
-                                        onKeyDown={handleKeyDown}
-                                        placeholder="Type your message..."
-                                        disabled={isSending}
-                                        rows={2}
-                                    />
-                                    <button 
-                                        onClick={sendMessage}
-                                        disabled={isSending || !messageInput.trim()}
-                                        className="send-btn"
-                                    >
-                                        Send
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </motion.div>
-                </div>
+                    )}
+                </motion.div>
             </div>
 
             <AnimatePresence>

@@ -281,6 +281,21 @@
 	cursor: not-allowed;
 }
 
+/* Microphone record button next to input */
+.mic-btn {
+	padding: 8px 10px;
+	background: #333;
+	color: #fff;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	font-weight: 600;
+}
+.mic-btn.recording {
+	background: linear-gradient(135deg, #e94b4b 0%, #c92b2b 100%);
+	box-shadow: 0 4px 12px rgba(233,75,75,0.2);
+}
+
 .confirm-modal {
 	position: fixed;
 	top: 0;
@@ -330,3 +345,24 @@
 .summary-btn-container {
 	margin: 10px;
 }
+
+/* Ensure the chat panel is positioned absolutely inside the main container
+   so toggling it doesn't shift or cut off layout. The editor reserves space
+   via an inline margin on `.ide-wrapper` so it won't be covered. */
+.main-container {
+	position: relative; /* already present but keep for clarity */
+}
+
+.chat-panel {
+	position: absolute;
+	right: 0;
+	top: 0;
+	bottom: 0;
+	height: 100%;
+	z-index: 20;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+/* Small collapsed width when closed */

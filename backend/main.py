@@ -14,6 +14,7 @@ from claude import build_trimmed_history, stream_haiku, SYSTEM_PROMPT
 from tts import synthesize_stream, synthesize_stream_gen
 import threading
 import queue
+from sst import sst_bp
 
 # In-memory session store: session_id -> {text_q, audio_q, thread}
 SESSIONS = {}
@@ -75,6 +76,10 @@ def iter_message_chunks(message_id, start_index=0):
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+# register speech-to-text blueprint
+app.register_blueprint(sst_bp, url_prefix="")
+
 try:
     ws_secret_key = os.environ['WS_SECRET_KEY']
 except KeyError:
@@ -449,7 +454,7 @@ def index():
 
 @app.route('/record')
 def record():
-    path = os.path.join(os.path.dirname(__file__), 'record.html')
+    path = os.path.join(os.path.dirname(__file__), 'index_record.html')
     if os.path.exists(path):
         return send_file(path)
     return jsonify({"error": "record.html not found"}), 404
