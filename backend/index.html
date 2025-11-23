@@ -322,6 +322,8 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             user_id: 'web-user',
+                            problem_title: 'Merge Two Sorted Lists',
+                            problem_desc: 'Given two sorted linked lists, merge them into a single sorted linked list.'
                         })
                     });
 
@@ -402,6 +404,11 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             role: 'user',
+                            code: `
+                            def merge():
+                                x = 100 # is this right?
+                                pass
+                            `,
                             sid: socket.id,
                             content: content
                         })
