@@ -4,6 +4,7 @@ load_dotenv()
 import os
 import uuid
 from flask import Flask, request, send_file, jsonify, Response
+from flask_socketio import SocketIO
 from flask_cors import CORS
 
 # Local modules
@@ -18,6 +19,12 @@ SESSIONS = {}
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+try:
+    ws_secret_key = os.environ['WS_SECRET_KEY']
+except KeyError:
+    raise RuntimeError("WS_SECRET_KEY environment variable is missing")
+app.config['SECRET_KEY'] = ws_secret_key
+socketio = SocketIO(app)
 
 # Configuration
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "5000"))
@@ -55,6 +62,12 @@ def list_messages_endpoint(conversation_id):
     limit = int(request.args.get('limit', '100'))
     messages = get_messages(conversation_id, since=since, limit=limit)
     return jsonify({"messages": messages})
+
+def background(sid):
+    socketio.emit('my event', 'WOW', to=sid)
+
+    socketio.sleep(10)
+    socketio.emit('my event', 'WOW', to=sid)
 
 @app.route('/conversations/<conversation_id>/messages', methods=['POST'])
 def post_message_endpoint(conversation_id):
@@ -302,5 +315,11 @@ def record():
         return send_file(path)
     return jsonify({"error": "record.html not found"}), 404
 
+@socketio.on('my event')
+def handle_message(data):
+    print('received message: ' + str(data))
+
+    socketio.start_background_task(background, request.sid)
+
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    socketio.run(app, host='127.0.0.1', port=5000, debug=True, allow_unsafe_werkzeug=True)
