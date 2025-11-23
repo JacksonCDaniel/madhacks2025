@@ -2,7 +2,7 @@ export default function TopicSelection({ topic, setTopic }) {
     const topics = [
         "Random",
         "Strings",
-        "Binary Search",
+        "Binary Trees",
         "Dynamic Programming",
         "Matrices",
         "Graphs",
