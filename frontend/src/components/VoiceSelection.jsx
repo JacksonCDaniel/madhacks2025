@@ -1,9 +1,9 @@
 export default function VoiceSelection({ voice, setVoice }) {    
     const voices = [
-        "Grace (Stern, professional)",
-        "Jackson (Friendly, fast)",
-        "Thomas (Calm, encouraging)",
-        "Valerie (Bored, monotone)"
+        { name: "Grace", adjectives: "Stern, professional"},
+        { name: "Jackson", adjectives: "Friendly, fast"},
+        { name: "Thomas", adjectives: "Calm, encouraging"},
+        { name: "Valerie", adjectives: "Bored, monotone"}
     ]
     return (
         <div className="interviewer-container">
@@ -14,7 +14,7 @@ export default function VoiceSelection({ voice, setVoice }) {
             >
                 <option value="">Select a voice...</option>
                 {voices.map((v, i) => (
-                    <option key={i} value={v}>{v}</option>
+                    <option key={i} value={v.name}>{v.name} ({v.adjectives})</option>
                 ))}
             </select>
         </div>
