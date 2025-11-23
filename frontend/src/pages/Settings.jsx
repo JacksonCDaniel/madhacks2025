@@ -3,15 +3,19 @@ import VoiceSelection from "../components/VoiceSelection";
 import CompanySelection from "../components/CompanySelection";
 import TopicSelection from "../components/TopicSelection";
 
+import TypingEffect from "../components/TypingEffect";
+
 export default function Settings({ onStart }) {
     const [voice, setVoice] = useState("");
     const [company, setCompany] = useState("");
     const [topic, setTopic] = useState("");
 
+    const [titleDone, setTitleDone] = useState(false);
+
     const topicDetails = {
         "Random": {
             title: "Merge Intervals",
-            description: `Given an array of intervals where intervals[i] = [starti, endi], merge all overlapping intervals, and return an array of the non-overlapping intervals that cover all the intervals in the input.`,
+            description: `Given an array of intervals where intervals[i] = [start[i], end[i]], merge all overlapping intervals, and return an array of the non-overlapping intervals that cover all the intervals in the input.`,
             starterCode: `class Solution(object):
     def merge(self, intervals):
         """
@@ -128,13 +132,31 @@ The first k elements of nums should contain the unique numbers in sorted order. 
         <div className="home-page">
             
             <div className="settings-container">
-                <h1>Coding Studio</h1>
+                <div className="settings-header">
+                    <h1 className="home-title">CodeCoach</h1>
+                    <TypingEffect
+                        texts={[
+                            "This is my plan, does that sound good?",
+                            "Am I asking the right technical questions?",
+                            "I'm stuck, can you push me in the right direction?",
+                            "Have I covered all the edge cases?",
+                            "Am I taking the right approach?",
+                            "What are the best ways to optimize this code?"
+                        ]}
+                        typingSpeed={40}
+                        deletingSpeed={50}
+                        pause={2000}
+                        loop={true}
+                        className="typing-subtitle"
+                        />
+                </div>
 
                 <VoiceSelection voice={voice} setVoice={setVoice}/>
                 {/* <CompanySelection company={company} setCompany={setCompany}/> */}
                 <TopicSelection topic={topic} setTopic={setTopic}/>
                 
                 <button 
+                    className="start-btn"
                     disabled={!isFormValid} 
                     onClick={() => onStart({ /* company,  */voice, topic, details: topicDetails[topic] })}>Start Interview</button>
             </div>

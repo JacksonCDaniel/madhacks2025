@@ -491,7 +491,7 @@ export default function InterviewOverlay({ voice, details, onEnd }) {
                         </option>
                     ))}
                 </select> */}
-                <button onClick={() => setShowConfirm(true)} style={{ backgroundColor: "red", color: "white" }}>End Interview</button>
+                <button className="stop-interview-btn" onClick={() => setShowConfirm(true)} style={{ backgroundColor: "red", color: "white" }}>End Interview</button>
             </div>
 
             <div className="main-container">
@@ -504,7 +504,7 @@ export default function InterviewOverlay({ voice, details, onEnd }) {
                     <div className="ide-wrapper" style={{ marginRight: chatOpen ? 350 : 48 }}>
                         <div className="ide-container">
                             <Editor
-                                height="700px"
+                                height="100%"
                                 language="python"
                                 value={details.starterCode}
                                 onChange={setCode}
@@ -522,9 +522,10 @@ export default function InterviewOverlay({ voice, details, onEnd }) {
 
                 <motion.div 
                     className="chat-panel"
-                    initial={false}
-                    animate={{ width: chatOpen ? 350 : 48}}
-                    transition={{ duration: 0.25 }}
+                    style = {{ width: chatOpen ? 350 : 75 }}
+                    initial={{ height: 48, opacity: 0 }}
+                    animate={{ height: chatOpen ? 700 : 60, opacity: chatOpen ? 1 : 0.8}}
+                    transition={{ duration: 0.5 }}
                     >
                     <div className="chat-header">
                         {chatOpen && <h2 className="chat-title">Interviewer Chatlog</h2>}
@@ -540,10 +541,13 @@ export default function InterviewOverlay({ voice, details, onEnd }) {
                                     {isPlayingAudio ? 'Stop' : 'Audio'}
                                 </button>
                             )}
-                            <button
-                                onClick={() => setChatOpen(!chatOpen)}>
-                                {chatOpen ? "X" : <MessageSquare />}
-                            </button>
+                            <div className="chat-header-button">
+                                <button
+                                    className="open-chat-btn"
+                                    onClick={() => setChatOpen(!chatOpen)}>
+                                    {chatOpen ? "X" : <MessageSquare />}
+                                </button>
+                            </div>
                         </div>
                     </div>
 

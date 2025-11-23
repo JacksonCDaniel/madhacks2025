@@ -11,7 +11,7 @@ export default function Summary({ data, onClose }) {
     return (
         <div className="summary-container">
             <h1>Review Your Interview</h1>
-            <p>
+            <p style={{fontSize: "22px"}}>
                 Do you want to generate a summary of this interview session? You will be provided
                 with feedback based on your performance.
             </p>
