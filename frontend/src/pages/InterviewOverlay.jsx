@@ -30,6 +30,9 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     // Debug: show the hidden audio element visibly on the page
     const DEBUG_SHOW_AUDIO = true;
     const audioDomRef = useRef(null);
+    const messagesRef = useRef(messages);
+
+    useEffect(() => { messagesRef.current = messages; }, [messages]);
 
     // Auto-scroll to bottom. Use the messages list element so we can
     // scroll to the container's scrollHeight after layout changes.
@@ -59,31 +62,29 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         });
 
         socketRef.current.on('llm_response', (chunk) => {
-            console.debug('[LLM SOCKET] received chunk', { chunk, audioStarted: audioStartedRef.current, buffered: bufferedChunksRef.current.length, bufferTimer: !!bufferTimerRef.current });
-            // Buffer incoming chunks until audio playback has started and
-            // the post-start buffer delay has elapsed. After that, append
-            // directly into the assistant message content.
-            setMessages(prev => {
-                const lastMsg = prev[prev.length - 1];
-                console.debug('[LLM SOCKET] handler prev lastMsg', { id: lastMsg?.id, role: lastMsg?.role, contentLen: lastMsg ? (lastMsg.content || '').length : 0 });
-                if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-                    // If audio has not started yet, or we are still within
-                    // the post-start buffer timer, store chunks in the buffer.
-                    if (!audioStartedRef.current || bufferTimerRef.current) {
-                        console.debug('[LLM SOCKET] buffering chunk (pre-flush)', { chunk });
-                        bufferedChunksRef.current.push(chunk);
-                        return prev;
-                    }
+            // Read the current messages snapshot; only call setMessages
+            // if we need to actually update the UI to avoid running the
+            // updater body unnecessarily (which caused double-buffering).
+            const prev = messagesRef.current;
+            const lastMsg = prev[prev.length - 1];
 
-                    // Otherwise append chunk immediately
-                    console.debug('[LLM SOCKET] appending chunk to last message', { id: lastMsg.id, chunkLen: chunk.length });
-                    return [
-                        ...prev.slice(0, -1),
-                        { ...lastMsg, content: lastMsg.content + chunk }
-                    ];
+            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+                // If audio has not started yet, or we are still within
+                // the post-start buffer timer, store chunks in the buffer
+                // and don't call setMessages yet.
+                if (!audioStartedRef.current || bufferTimerRef.current) {
+                    bufferedChunksRef.current.push(chunk);
+                    return;
                 }
-                return prev;
-            });
+
+                // Otherwise append chunk immediately to the last assistant message
+                const updatedMsg = { ...lastMsg, content: (lastMsg.content || '') + chunk };
+                const updated = prev.slice(0, -1).concat(updatedMsg);
+                setMessages(updated);
+                return;
+            }
+
+            // No UI update required for this chunk
         });
 
         return () => {
@@ -165,7 +166,6 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
 
             // Update assistant message ID
             if (assistantMsgId) {
-                console.debug('[CHAT] backend returned assistantMsgId', { assistantMsgId });
                 // Create placeholder for streaming assistant response
                 const assistantMsg = {
                     id: assistantMsgId,
@@ -175,7 +175,6 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                     isStreaming: true
                 };
                 setMessages(prev => [...prev, assistantMsg]);
-                // console.debug('[CHAT] created assistant placeholder', { id: assistantMsg.id });
 
                 // Start playing the TTS stream for the assistant message.
                 // Ensure we only play the latest message: stop any existing audio first.
@@ -245,7 +244,6 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
             // as soon as audio is ready. We still wait for `canplay` so text
             // is only shown once audio data begins arriving.
             const onCanPlay = () => {
-                console.debug('[AUDIO] canplay event for msgId', audioMsgIdRef.current);
                 // mark that audio data is available
                 audioStartedRef.current = true;
 
@@ -256,7 +254,6 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                     const playPromise = audio.play();
                     if (playPromise && typeof playPromise.then === 'function') {
                         playPromise.then(() => {
-                            console.debug('[AUDIO] play() resolved for msgId', audioMsgIdRef.current);
                             setIsPlayingAudio(true);
                             flushBufferedChunks();
                         }).catch((err) => {
@@ -319,24 +316,20 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 clearTimeout(bufferTimerRef.current);
                 bufferTimerRef.current = null;
             }
-            console.debug('[FLUSH] no buffered chunks to flush');
             return;
         }
 
         const chunks = bufferedChunksRef.current.join('');
         bufferedChunksRef.current = [];
-        console.debug('[FLUSH] flushing buffered chunks', { audioMsgId: audioMsgIdRef.current, chunksLen: chunks.length });
 
         setMessages(prev => {
             // try to update the specific audio message if possible
             const idx = prev.map(m => m.id).lastIndexOf(audioMsgIdRef.current);
             if (idx !== -1) {
                 const msg = prev[idx];
-                console.debug('[FLUSH] target message before update', { id: msg.id, existingLen: (msg.content || '').length });
                 const updated = { ...msg, content: (msg.content || '') + chunks };
                 const copy = prev.slice();
                 copy[idx] = updated;
-                console.debug('[FLUSH] target message after update', { id: updated.id, newLen: (updated.content || '').length });
                 return copy;
             }
 
