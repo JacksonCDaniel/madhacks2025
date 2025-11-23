@@ -23,6 +23,10 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const messagesListRef = useRef(null);
     const audioRef = useRef(null);
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+    const audioStartedRef = useRef(false);
+    const bufferedChunksRef = useRef([]);
+    const bufferTimerRef = useRef(null);
+    const audioMsgIdRef = useRef(null);
 
     // Auto-scroll to bottom. Use the messages list element so we can
     // scroll to the container's scrollHeight after layout changes.
@@ -52,14 +56,20 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         });
 
         socketRef.current.on('llm_response', (chunk) => {
+            // Buffer incoming chunks until audio playback has started and
+            // the post-start buffer delay has elapsed. After that, append
+            // directly into the assistant message content.
             setMessages(prev => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-                    // If this is the first chunk for the streaming message,
-                    // clear the typing indicator so the UI shows the live text.
-                    if (!lastMsg.content && chunk) {
-                        setIsTyping(false);
+                    // If audio has not started yet, or we are still within
+                    // the post-start buffer timer, store chunks in the buffer.
+                    if (!audioStartedRef.current || bufferTimerRef.current) {
+                        bufferedChunksRef.current.push(chunk);
+                        return prev;
                     }
+
+                    // Otherwise append chunk immediately
                     return [
                         ...prev.slice(0, -1),
                         { ...lastMsg, content: lastMsg.content + chunk }
@@ -190,6 +200,14 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
             try { audio.src = ''; } catch (err) { console.debug('audio clear src error', err); }
             audioRef.current = null;
         }
+        // Clear any buffer timer and buffered chunks
+        if (bufferTimerRef.current) {
+            clearTimeout(bufferTimerRef.current);
+            bufferTimerRef.current = null;
+        }
+        bufferedChunksRef.current = [];
+        audioStartedRef.current = false;
+        audioMsgIdRef.current = null;
         setIsPlayingAudio(false);
     };
 
@@ -198,35 +216,131 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         // Stop any current playback first
         stopAudioPlayback();
 
+        // Track which message this audio is for
+        audioMsgIdRef.current = msgId;
+        audioStartedRef.current = false;
+        bufferedChunksRef.current = [];
+
         const streamUrl = `${API_BASE}/conversations/${conversationId}/messages/${msgId}/tts_stream`;
 
-        // Create a new Audio object and autoplay
+        // Create a new Audio object and preload the stream. We don't play
+        // immediately — wait for the first playable data and then delay
+        // playback by 5s so text and audio start together after buffering.
         try {
-            const audio = new Audio(streamUrl);
-            audio.autoplay = true;
+            const audio = new Audio();
+            audio.preload = 'auto';
+            audio.src = streamUrl;
             audioRef.current = audio;
 
-            // Update playing state
-            const playPromise = audio.play();
-            if (playPromise && typeof playPromise.then === 'function') {
-                playPromise.then(() => setIsPlayingAudio(true)).catch(() => setIsPlayingAudio(true));
-            } else {
-                setIsPlayingAudio(true);
-            }
+            // When the browser reports the media can play (some data available),
+            // start a 5s timer. During this timer we keep buffering incoming
+            // LLM text. When the timer fires we'll call play() and flush text.
+            const onCanPlay = () => {
+                // mark that audio data is available
+                audioStartedRef.current = true;
+
+                if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+                bufferTimerRef.current = setTimeout(() => {
+                    // Attempt to start playback and flush buffered text only
+                    // once we've allowed extra buffering time.
+                    const playPromise = audio.play();
+                    if (playPromise && typeof playPromise.then === 'function') {
+                        playPromise.then(() => {
+                            setIsPlayingAudio(true);
+                            flushBufferedChunks();
+                        }).catch((err) => {
+                            // If autoplay blocked, still flush the text so user
+                            // sees the response; audio will require user action.
+                            console.debug('audio play blocked', err);
+                            setIsPlayingAudio(false);
+                            flushBufferedChunks();
+                        });
+                    } else {
+                        setIsPlayingAudio(true);
+                        flushBufferedChunks();
+                    }
+
+                    bufferTimerRef.current = null;
+                }, 5000);
+            };
+
+            audio.addEventListener('canplay', onCanPlay, { once: true });
 
             audio.onended = () => {
                 setIsPlayingAudio(false);
                 audioRef.current = null;
+                // cleanup buffer state
+                if (bufferTimerRef.current) {
+                    clearTimeout(bufferTimerRef.current);
+                    bufferTimerRef.current = null;
+                }
+                bufferedChunksRef.current = [];
+                audioStartedRef.current = false;
+                audioMsgIdRef.current = null;
             };
 
             audio.onerror = () => {
                 setIsPlayingAudio(false);
                 audioRef.current = null;
+                if (bufferTimerRef.current) {
+                    clearTimeout(bufferTimerRef.current);
+                    bufferTimerRef.current = null;
+                }
+                bufferedChunksRef.current = [];
+                audioStartedRef.current = false;
+                audioMsgIdRef.current = null;
             };
         } catch (err) {
             console.error('Failed to start audio:', err);
             setIsPlayingAudio(false);
             audioRef.current = null;
+        }
+    };
+
+    const flushBufferedChunks = () => {
+        if (!bufferedChunksRef.current.length) {
+            if (bufferTimerRef.current) {
+                clearTimeout(bufferTimerRef.current);
+                bufferTimerRef.current = null;
+            }
+            return;
+        }
+
+        const chunks = bufferedChunksRef.current.join('');
+        bufferedChunksRef.current = [];
+
+        setMessages(prev => {
+            // try to update the specific audio message if possible
+            const idx = prev.map(m => m.id).lastIndexOf(audioMsgIdRef.current);
+            if (idx !== -1) {
+                const msg = prev[idx];
+                const updated = { ...msg, content: (msg.content || '') + chunks };
+                const copy = prev.slice();
+                copy[idx] = updated;
+                return copy;
+            }
+
+            // fallback: append to last assistant streaming message
+            const lastIdx = prev.map(m => m.role).lastIndexOf('assistant');
+            if (lastIdx !== -1) {
+                const msg = prev[lastIdx];
+                if (msg.isStreaming) {
+                    const updated = { ...msg, content: (msg.content || '') + chunks };
+                    const copy = prev.slice();
+                    copy[lastIdx] = updated;
+                    return copy;
+                }
+            }
+
+            return prev;
+        });
+
+        // hide typing indicator once we start showing text
+        setIsTyping(false);
+
+        if (bufferTimerRef.current) {
+            clearTimeout(bufferTimerRef.current);
+            bufferTimerRef.current = null;
         }
     };
 
