@@ -1,8 +1,10 @@
-export default function VoiceSelection({ voice, setVoice }) {
+export default function VoiceSelection({ voice, setVoice }) {    
     const voices = [
-        { name: "Alice", adjectives: "Friendly voice" },
-        { name: "Bob", adjectives: "Energetic voice" }
-    ];
+        { name: "Grace", adjectives: "Stern, professional"},
+        { name: "Jackson", adjectives: "Friendly, fast"},
+        { name: "Thomas", adjectives: "Calm, encouraging"},
+        { name: "Valerie", adjectives: "Bored, monotone"}
+    ]
     return (
         <div className="interviewer-container">
             <h2>Choose your interviewer</h2>
@@ -16,5 +18,6 @@ export default function VoiceSelection({ voice, setVoice }) {
                 ))}
             </select>
         </div>
+    
     )
 }
