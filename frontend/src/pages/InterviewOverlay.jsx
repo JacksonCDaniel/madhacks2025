@@ -25,6 +25,11 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const audioRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
+    const [audioLevel, setAudioLevel] = useState(0);
+    const audioCtxRef = useRef(null);
+    const analyserRef = useRef(null);
+    const sourceRef = useRef(null);
+    const meterRafRef = useRef(null);
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const audioStartedRef = useRef(false);
     const bufferedChunksRef = useRef([]);
@@ -239,10 +244,15 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 } finally {
                     audioChunksRef.current = [];
                     mediaRecorderRef.current = null;
+                    setAudioLevel(0);
                 }
             });
 
-            mr.start();
+            try {
+                mr.start(250);
+            } catch {
+                try { mr.start(); } catch (e) { console.debug('mr.start failed', e); }
+            }
             setIsRecording(true);
         } catch (err) {
             console.error('Failed to start recording', err);
@@ -424,12 +434,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         }
     };
 
-    const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    };
+    // Typed input removed — handleKeyDown no longer needed
 
     // Cleanup audio on unmount
     useEffect(() => {
@@ -584,6 +589,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                             </div>
 
                             <div className="input-container">
+                                {/* Typed message UI removed — recording only mode
                                 <textarea
                                     value={messageInput}
                                     onChange={(e) => setMessageInput(e.target.value)}
@@ -592,14 +598,6 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                                     disabled={isSending}
                                     rows={2}
                                 />
-                                <button
-                                    className={"mic-btn " + (isRecording ? 'recording' : '')}
-                                    onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
-                                    title={isRecording ? 'Stop recording' : 'Record'}
-                                    type="button"
-                                >
-                                    {isRecording ? 'Stop' : 'Rec'}
-                                </button>
                                 <button 
                                     onClick={() => sendMessage()}
                                     disabled={isSending || !messageInput.trim()}
@@ -607,6 +605,21 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                                 >
                                     Send
                                 </button>
+                                */}
+
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+                                    <button
+                                        className={"mic-btn " + (isRecording ? 'recording' : '')}
+                                        onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
+                                        title={isRecording ? 'Stop recording' : 'Record'}
+                                        type="button"
+                                    >
+                                        {isRecording ? 'Stop' : '🎤'}
+                                    </button>
+                                    <div className="mic-meter" aria-hidden>
+                                        <div className="mic-meter-fill" style={{ width: `${Math.round(audioLevel * 100)}%` }} />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}

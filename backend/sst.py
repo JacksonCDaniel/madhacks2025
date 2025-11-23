@@ -129,13 +129,11 @@ def sst_endpoint():
         # Cleanup tempfile(s)
         try:
             if mp3_path:
-                pass
-                # os.unlink(mp3_path)
+                os.unlink(mp3_path)
         except Exception:
             pass
         try:
-            pass
-            # os.unlink(tmp_path)
+            os.unlink(tmp_path)
         except Exception:
             pass
 
