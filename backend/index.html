@@ -267,12 +267,12 @@
             <h1>🎙️ AI Conversation</h1>
             <div class="header-actions">
                 <button class="btn-small" onclick="app.newConversation()">New Chat</button>
-                <button class="btn-small" onclick="app.exportConversation()">Export</button>
+                <!-- <button class="btn-small" onclick="app.exportConversation()">Export</button> -->
             </div>
         </div>
 
         <div class="messages-container" id="messages">
-            <div class="status">Starting new conversation...</div>
+            <!-- <div class="status">Starting new conversation...</div> -->
         </div>
 
         <div class="input-container">
@@ -342,7 +342,7 @@
                     const data = await response.json();
                     this.messages = data.messages;
                     this.render();
-                    this.showStatus('Conversation loaded', 'success');
+                    // this.showStatus('Conversation loaded', 'success');
                 } catch (error) {
                     this.showStatus('Error loading messages: ' + error.message, 'error');
                     this.createConversation();
@@ -481,13 +481,13 @@
             },
 
             newConversation() {
-                if (confirm('Start a new conversation? Current conversation will be saved.')) {
+                // if (confirm('Start a new conversation? Current conversation will be saved.')) {
                     localStorage.removeItem('conversationId');
                     this.conversationId = null;
                     this.messages = [];
                     this.audioCache = {};
                     this.createConversation();
-                }
+                // }
             },
 
             render() {
