@@ -471,4 +471,4 @@ def record():
 
 if __name__ == '__main__':
     # cant use reloader with sockets on werkzeug
-    socketio.run(app, host='127.0.0.1', port=5000, debug=True, allow_unsafe_werkzeug=True, use_reloader=False)
+    socketio.run(app, host='127.0.0.1', port=5067, debug=True, allow_unsafe_werkzeug=True, use_reloader=False)
