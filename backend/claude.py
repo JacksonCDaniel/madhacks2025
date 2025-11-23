@@ -156,6 +156,8 @@ def stream_haiku(conversation_id):
 
     msgs = build_msg_ctx(messages)
 
+    print(msgs)
+
     # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
     with client.messages.stream(
         max_tokens=1024,
@@ -165,4 +167,5 @@ def stream_haiku(conversation_id):
         system=SYSTEM_PROMPT,
     ) as stream:
         for text in stream.text_stream:
+            print(text)
             yield text

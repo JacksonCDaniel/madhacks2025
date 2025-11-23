@@ -75,11 +75,14 @@ def post_message_endpoint(conversation_id):
         return jsonify({"error": "expected JSON body"}), 400
     payload = request.get_json()
     role = payload.get('role', 'user')
+    sid = payload.get('sid')
     content = payload.get('content')
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
 
     if not content or not isinstance(content, str) or not content.strip():
         return jsonify({"error": "content is required"}), 400
+    if not sid:
+        return jsonify({"error": "sid is required"}), 400
     if len(content) > MAX_TEXT_CHARS:
         return jsonify({"error": f"text too long (max {MAX_TEXT_CHARS} chars)"}), 413
 
@@ -87,33 +90,34 @@ def post_message_endpoint(conversation_id):
     msg_id = insert_message(conversation_id=conversation_id, role=role, content=content, metadata=metadata)
 
     # For sync responses, call Claude Haiku immediately (trimmed)
-    history = build_trimmed_history(conversation_id, token_budget=TOKEN_BUDGET)
-    text_gen = stream_haiku(history)
+    text_gen = stream_haiku(conversation_id)
 
-    def gen_chunks(sid):
+    print('aaa')
+    # print(str(next(text_gen)))
+    print('aaa2')
+
+
+    def gen_chunks():
         chunks = []
 
+        print('bbb')
+
         for chunk in text_gen:
-            socketio.emit('llm response', chunk, to=sid)
+            print('ccc')
+            socketio.emit('llm_response', chunk, to=sid)
             chunks.append(chunk)
             yield chunk
 
+        print('after chunks')
+
         assistant_text = ''.join(chunks)
 
-        # TODO: Test
         # persist assistant reply
         assistant_id = insert_message(conversation_id=conversation_id, role='assistant', content=assistant_text,
                                       metadata={})
-        # assistant_msg = {
-        #     "id": assistant_id,
-        #     "role": "assistant",
-        #     # "content": assistant_text,
-        #     "created_at": now_iso(),
-        #     "metadata": {}
-        # }
 
     try:
-        tts_response = synthesize_stream_gen(gen_chunks(request.sid))
+        tts_response = synthesize_stream_gen(gen_chunks())
 
         return Response(tts_response, mimetype='audio/mpeg')
     except Exception as e:
@@ -338,4 +342,5 @@ def record():
 #     socketio.start_background_task(background, request.sid)
 
 if __name__ == '__main__':
-    socketio.run(app, host='127.0.0.1', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    # cant use reloader with sockets on werkzeug
+    socketio.run(app, host='127.0.0.1', port=5000, debug=True, allow_unsafe_werkzeug=True, use_reloader=False)

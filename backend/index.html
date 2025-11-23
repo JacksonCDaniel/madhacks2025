@@ -292,12 +292,13 @@
         const API_BASE = 'http://127.0.0.1:5000';
         const socket = io();
 
-        // socket.on('connect', function() {
-        //     socket.emit('my event', {data: 'I\'m connected!'});
-        // });
+        socket.on('connect', function() {
+            console.log('connected to ws');
+            // socket.emit('my event', {data: 'I\'m connected!'});
+        });
 
-        socket.on('llm_response', function(msg) {
-            // TODO: Append to latest response
+        socket.on('llm_response', function(chunk) {
+            app.appendToLatestAssistantMessage(chunk);
         });
 
         const app = {
@@ -375,7 +376,7 @@
 
                 // Add user message to UI immediately
                 const userMsg = {
-                    id: 'temp-' + Date.now(),
+                    id: 'temp-user-' + Date.now(),
                     role: 'user',
                     content: content,
                     created_at: new Date().toISOString(),
@@ -385,8 +386,17 @@
                 this.render();
                 input.value = '';
 
-                // Show typing indicator
-                this.showTyping();
+                // Create placeholder assistant message that will be filled by WebSocket
+                const assistantMsg = {
+                    id: 'temp-assistant-' + Date.now(),
+                    role: 'assistant',
+                    content: '',
+                    created_at: new Date().toISOString(),
+                    metadata: {},
+                    isStreaming: true
+                };
+                this.messages.push(assistantMsg);
+                this.render();
 
                 try {
                     const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/messages`, {
@@ -394,29 +404,54 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             role: 'user',
+                            sid: socket.id,
                             content: content
                         })
                     });
 
-                    console.log(response);
-
                     if (!response.ok) throw new Error('Failed to send message');
 
-                    const data = await response.json();
+                    // Response is audio data, not JSON
+                    const audioBlob = await response.blob();
 
-                    // Replace temp message and add assistant response
-                    this.messages = this.messages.filter(m => !m.id.startsWith('temp-'));
-
-                    // Reload messages to get the full conversation
-                    await this.loadMessages();
+                    // Find the assistant message element and add audio player
+                    const assistantMsgEl = document.querySelector(`[data-message-id="${assistantMsg.id}"]`);
+                    if (assistantMsgEl) {
+                        const audioEl = document.createElement('audio');
+                        audioEl.controls = true;
+                        audioEl.autoplay = true;
+                        audioEl.src = URL.createObjectURL(audioBlob);
+                        assistantMsgEl.querySelector('.message-content').appendChild(audioEl);
+                    }
 
                 } catch (error) {
                     this.showStatus('Error sending message: ' + error.message, 'error');
                 } finally {
-                    this.hideTyping();
                     input.disabled = false;
                     document.getElementById('sendBtn').disabled = false;
                     input.focus();
+                }
+            },
+
+            appendToLatestAssistantMessage(chunk) {
+                // Find the latest assistant message (streaming)
+                const latestAssistant = [...this.messages].reverse().find(m => m.role === 'assistant' && m.isStreaming);
+
+                if (latestAssistant) {
+                    latestAssistant.content += chunk;
+
+                    // Update just the text content of that message without re-rendering everything
+                    const msgEl = document.querySelector(`[data-message-id="${latestAssistant.id}"]`);
+                    if (msgEl) {
+                        const textDiv = msgEl.querySelector('.message-content > div');
+                        if (textDiv) {
+                            textDiv.textContent = latestAssistant.content;
+                        }
+                    }
+
+                    // Auto-scroll to bottom
+                    const container = document.getElementById('messages');
+                    container.scrollTop = container.scrollHeight;
                 }
             },
 
