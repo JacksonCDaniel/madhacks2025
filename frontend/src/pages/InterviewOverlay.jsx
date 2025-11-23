@@ -53,6 +53,11 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
             setMessages(prev => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+                    // If this is the first chunk for the streaming message,
+                    // clear the typing indicator so the UI shows the live text.
+                    if (!lastMsg.content && chunk) {
+                        setIsTyping(false);
+                    }
                     return [
                         ...prev.slice(0, -1),
                         { ...lastMsg, content: lastMsg.content + chunk }
@@ -156,7 +161,8 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 ));
             }
 
-            setIsTyping(false);
+            // Do not clear `isTyping` here: keep the typing indicator
+            // visible until we receive the first streaming chunk from the LLM.
         } catch (error) {
             console.error('Error sending message:', error);
             setIsTyping(false);
@@ -265,19 +271,29 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                         {chatOpen && (
                             <div className="chat-container">
                                 <div className="messages-list" ref={messagesListRef}>
-                                    {messages.map(msg => (
-                                        <div 
-                                            key={msg.id} 
-                                            className={msg.role === 'user' ? 'user-container' : 'ai-container'}
-                                        >
-                                            <div className="message-avatar">
-                                                {msg.role === 'user' ? 'U' : 'AI'}
+                                    {messages
+                                        .filter(msg => {
+                                            // Hide the assistant placeholder message while
+                                            // it's streaming with no content yet to avoid
+                                            // showing an empty message above the typing indicator.
+                                            if (msg.role === 'assistant' && msg.isStreaming && !msg.content) {
+                                                return false;
+                                            }
+                                            return true;
+                                        })
+                                        .map(msg => (
+                                            <div 
+                                                key={msg.id} 
+                                                className={msg.role === 'user' ? 'user-container' : 'ai-container'}
+                                            >
+                                                <div className="message-avatar">
+                                                    {msg.role === 'user' ? 'U' : 'AI'}
+                                                </div>
+                                                <div className="message-content">
+                                                    {msg.content ? msg.content : null}
+                                                </div>
                                             </div>
-                                            <div className="message-content">
-                                                {msg.content || '...'}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        ))}
                                     
                                     {isTyping && (
                                         <div className="ai-container">
