@@ -38,7 +38,7 @@ def synthesize_stream_gen(text_gen, model_id: str = None):
 def synthesize_stream(text: str, model_id: str = None):
     mid = model_id or MODEL_ID
     def text_chunks():
-        print(text)
+        # print(text)
         yield text
 
     # print(f"[TTS] Starting stream for {len(text)} chars")
