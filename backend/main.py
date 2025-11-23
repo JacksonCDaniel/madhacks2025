@@ -74,6 +74,7 @@ def iter_message_chunks(message_id, start_index=0):
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
 try:
     ws_secret_key = os.environ['WS_SECRET_KEY']
 except KeyError:
@@ -91,11 +92,12 @@ init_db()
 # Helpers
 @app.route('/conversations', methods=['POST'])
 def create_conversation_endpoint():
-    payload = request.get_json(silent=True) or {}
-    user_id = payload.get('user_id')
-    metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
-    conv_id = create_conversation(user_id=user_id, metadata=metadata)
-    return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
+        payload = request.get_json(force=True)
+        print("Payload received:", payload)
+        user_id = payload.get('user_id')
+        metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
+        conv_id = create_conversation(user_id=user_id, metadata=metadata)
+        return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
 
 @app.route('/conversations/<conversation_id>', methods=['GET'])
 def get_conversation_endpoint(conversation_id):
