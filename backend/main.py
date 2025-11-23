@@ -244,18 +244,9 @@ def tts_stream_by_message_id(conversation_id, message_id):
 
     # Check if this message is being tracked (in-progress or recently completed)
     if message_id in MESSAGE_CHUNKS:
-        # Stream from the chunk tracker
-        def generate_from_chunks():
-            for chunk in iter_message_chunks(message_id, start_index):
-                # Synthesize TTS for this chunk and yield audio bytes
-                try:
-                    for audio_chunk in synthesize_stream(chunk):
-                        yield audio_chunk
-                except Exception as e:
-                    print(f"TTS synthesis error for chunk: {e}")
-                    break
+        tts_gen = synthesize_stream_gen(iter_message_chunks(message_id, start_index))
 
-        resp = Response(generate_from_chunks(), mimetype='audio/mpeg', direct_passthrough=True)
+        resp = Response(tts_gen, mimetype='audio/mpeg', direct_passthrough=True)
         resp.headers['Cache-Control'] = 'no-cache'
         resp.headers['X-Accel-Buffering'] = 'no'
         resp.headers['Connection'] = 'keep-alive'
