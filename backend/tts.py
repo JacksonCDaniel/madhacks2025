@@ -13,6 +13,20 @@ def synthesize_bytes(text: str, model_id: str = None) -> bytes:
     # The SDK in the original demo returned bytes-like object
     return audio
 
+def synthesize_stream_gen(text_gen, model_id: str = None):
+    mid = model_id or MODEL_ID
+
+    # print(f"[TTS] Starting stream for {len(text)} chars")
+    audio_stream = client.tts.stream_websocket(text_gen,
+                                     reference_id=mid,
+                                     latency='balanced')
+
+    for i, chunk in enumerate(audio_stream):
+        # print(f"[TTS] Yielding chunk {i}, size {len(chunk)}")
+        yield chunk
+
+    # print("[TTS] Stream complete")
+
 
 def synthesize_stream(text: str, model_id: str = None):
     mid = model_id or MODEL_ID

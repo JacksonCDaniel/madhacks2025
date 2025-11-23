@@ -10,7 +10,7 @@ from flask_cors import CORS
 # Local modules
 from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages, now_iso
 from claude import build_trimmed_history, call_haiku, stream_haiku
-from tts import synthesize_stream
+from tts import synthesize_stream, synthesize_stream_gen
 import threading
 import queue
 
@@ -63,11 +63,11 @@ def list_messages_endpoint(conversation_id):
     messages = get_messages(conversation_id, since=since, limit=limit)
     return jsonify({"messages": messages})
 
-def background(sid):
-    socketio.emit('my event', 'WOW', to=sid)
-
-    socketio.sleep(10)
-    socketio.emit('my event', 'WOW', to=sid)
+# def background(sid):
+#     socketio.emit('my event', 'WOW', to=sid)
+#
+#     socketio.sleep(10)
+#     socketio.emit('my event', 'WOW', to=sid)
 
 @app.route('/conversations/<conversation_id>/messages', methods=['POST'])
 def post_message_endpoint(conversation_id):
@@ -88,20 +88,36 @@ def post_message_endpoint(conversation_id):
 
     # For sync responses, call Claude Haiku immediately (trimmed)
     history = build_trimmed_history(conversation_id, token_budget=TOKEN_BUDGET)
+    text_gen = stream_haiku(history)
+
+    def gen_chunks(sid):
+        chunks = []
+
+        for chunk in text_gen:
+            socketio.emit('llm response', chunk, to=sid)
+            chunks.append(chunk)
+            yield chunk
+
+        assistant_text = ''.join(chunks)
+
+        # TODO: Test
+        # persist assistant reply
+        assistant_id = insert_message(conversation_id=conversation_id, role='assistant', content=assistant_text,
+                                      metadata={})
+        # assistant_msg = {
+        #     "id": assistant_id,
+        #     "role": "assistant",
+        #     # "content": assistant_text,
+        #     "created_at": now_iso(),
+        #     "metadata": {}
+        # }
+
     try:
-        assistant_text = call_haiku(history)
+        tts_response = synthesize_stream_gen(gen_chunks(request.sid))
+
+        return Response(tts_response, mimetype='audio/mpeg')
     except Exception as e:
-        return jsonify({"error": "assistant call failed", "detail": str(e)}), 500
-    # persist assistant reply
-    assistant_id = insert_message(conversation_id=conversation_id, role='assistant', content=assistant_text, metadata={})
-    assistant_msg = {
-        "id": assistant_id,
-        "role": "assistant",
-        "content": assistant_text,
-        "created_at": now_iso(),
-        "metadata": {}
-    }
-    return jsonify({"assistant_message": assistant_msg}), 200
+        return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
 
 @app.route('/conversations/<conversation_id>/tts', methods=['POST'])
 def tts_endpoint(conversation_id):
@@ -315,11 +331,11 @@ def record():
         return send_file(path)
     return jsonify({"error": "record.html not found"}), 404
 
-@socketio.on('my event')
-def handle_message(data):
-    print('received message: ' + str(data))
-
-    socketio.start_background_task(background, request.sid)
+# @socketio.on('my event')
+# def handle_message(data):
+#     print('received message: ' + str(data))
+#
+#     socketio.start_background_task(background, request.sid)
 
 if __name__ == '__main__':
     socketio.run(app, host='127.0.0.1', port=5000, debug=True, allow_unsafe_werkzeug=True)

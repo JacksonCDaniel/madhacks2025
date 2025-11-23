@@ -292,12 +292,12 @@
         const API_BASE = 'http://127.0.0.1:5000';
         const socket = io();
 
-        socket.on('connect', function() {
-            socket.emit('my event', {data: 'I\'m connected!'});
-        });
+        // socket.on('connect', function() {
+        //     socket.emit('my event', {data: 'I\'m connected!'});
+        // });
 
-        socket.on('my event', function(msg) {
-            console.log('Received socket event:', msg);
+        socket.on('llm_response', function(msg) {
+            // TODO: Append to latest response
         });
 
         const app = {
