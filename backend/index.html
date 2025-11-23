@@ -411,8 +411,13 @@
 
                     if (!response.ok) throw new Error('Failed to send message');
 
+                    // console.log('before blob');
+
                     // Response is audio data, not JSON
                     const audioBlob = await response.blob();
+
+                    // the blob waits for all chunks :/
+                    // console.log('after blob');
 
                     // Find the assistant message element and add audio player
                     const assistantMsgEl = document.querySelector(`[data-message-id="${assistantMsg.id}"]`);

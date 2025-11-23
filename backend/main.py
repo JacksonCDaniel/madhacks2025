@@ -92,18 +92,18 @@ def post_message_endpoint(conversation_id):
     # For sync responses, call Claude Haiku immediately (trimmed)
     text_gen = stream_haiku(conversation_id)
 
-    print('aaa')
+    # print('aaa')
     # print(str(next(text_gen)))
-    print('aaa2')
+    # print('aaa2')
 
 
     def gen_chunks():
         chunks = []
 
-        print('bbb')
+        # print('bbb')
 
         for chunk in text_gen:
-            print('ccc')
+            # print('ccc')
             socketio.emit('llm_response', chunk, to=sid)
             chunks.append(chunk)
             yield chunk
@@ -119,7 +119,13 @@ def post_message_endpoint(conversation_id):
     try:
         tts_response = synthesize_stream_gen(gen_chunks())
 
-        return Response(tts_response, mimetype='audio/mpeg')
+        resp = Response(tts_response, mimetype='audio/mpeg', direct_passthrough = True)
+        # Avoid setting Content-Length so Transfer-Encoding: chunked is used
+        # Advise proxies not to buffer the response
+        resp.headers['Cache-Control'] = 'no-cache'
+        resp.headers['X-Accel-Buffering'] = 'no'
+        resp.headers['Connection'] = 'keep-alive'
+        return resp
     except Exception as e:
         return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
 
