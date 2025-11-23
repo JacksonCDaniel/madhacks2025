@@ -1,44 +1,168 @@
 import { useState, useEffect, useRef } from "react";
-
+import io from "socket.io-client";
 import { Editor } from "@monaco-editor/react";
 import { MessageSquare } from "lucide-react";
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "motion/react";
 
-export default function InterviewOverlay({ company, voice, topic, details, onEnd }) {
-    // const languages = [
-    //     "Java",
-    //     "Python",
-    //     "C",
-    //     "C++",
-    //     "JavaScript",
-    //     "SQL",
-    //     "Rust"
-    // ]
+const API_BASE = 'http://127.0.0.1:5067';
 
-    // const languageMap = {
-    //     Java: "java",
-    //     Python: "python",
-    //     C: "c",
-    //     "C++": "cpp",
-    //     JavaScript: "javascript",
-    //     SQL: "sql",
-    //     Rust: "rust"
-    // }
-
-    const problems = [
-
-    ]
+export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const [chatOpen, setChatOpen] = useState(true);
     const [code, setCode] = useState("");
-
     const editorRef = useRef(null);
+    const [showConfirm, setShowConfirm] = useState(false);
+    
+    // Chat state
+    const [messages, setMessages] = useState([]);
+    const [conversationId, setConversationId] = useState(null);
+    const [messageInput, setMessageInput] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const [isSending, setIsSending] = useState(false);
+    const socketRef = useRef(null);
+    const messagesEndRef = useRef(null);
+
+    // Auto-scroll to bottom
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
 
     useEffect(() => {
-        if (editorRef.current) editorRef.current.layout();
-    }, [chatOpen]);
-    const [problem, setProblem] = useState("");
+        scrollToBottom();
+    }, [messages, isTyping]);
 
-    const [showConfirm, setShowConfirm] = useState(false);
+    // Initialize WebSocket connection
+    useEffect(() => {
+        socketRef.current = io(API_BASE);
+        
+        socketRef.current.on('connect', () => {
+            console.log('Connected to WebSocket');
+        });
+
+        socketRef.current.on('llm_response', (chunk) => {
+            setMessages(prev => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+                    return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, content: lastMsg.content + chunk }
+                    ];
+                }
+                return prev;
+            });
+        });
+
+        return () => {
+            if (socketRef.current) {
+                socketRef.current.disconnect();
+            }
+        };
+    }, []);
+
+    // Create conversation on mount
+    useEffect(() => {
+        const createConversation = async () => {
+            try {
+                const response = await fetch(`${API_BASE}/conversations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: 'web-user',
+                        problem_title: details.title || 'Interview Problem',
+                        problem_desc: details.description || ''
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to create conversation');
+
+                const data = await response.json();
+                setConversationId(data.conversation_id);
+                
+                // Add initial greeting message
+                setMessages([{
+                    id: 'greeting',
+                    role: 'assistant',
+                    content: `Hello! My name is ${voice} and welcome to your interview with ${company}.`,
+                    created_at: new Date().toISOString()
+                }]);
+            } catch (error) {
+                console.error('Error creating conversation:', error);
+            }
+        };
+
+        createConversation();
+    }, [company, voice, details]);
+
+    const sendMessage = async () => {
+        if (!messageInput.trim() || !conversationId || isSending) return;
+
+        const content = messageInput.trim();
+        setMessageInput("");
+        setIsSending(true);
+
+        // Add user message
+        const userMsg = {
+            id: 'temp-user-' + Date.now(),
+            role: 'user',
+            content: content,
+            created_at: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, userMsg]);
+
+        // Show typing indicator
+        setIsTyping(true);
+
+        // Create placeholder for streaming assistant response
+        const assistantMsg = {
+            id: 'temp-assistant-' + Date.now(),
+            role: 'assistant',
+            content: '',
+            created_at: new Date().toISOString(),
+            isStreaming: true
+        };
+        setMessages(prev => [...prev, assistantMsg]);
+
+        try {
+            const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    role: 'user',
+                    code: code,
+                    sid: socketRef.current?.id,
+                    content: content
+                })
+            });
+
+            if (!response.ok) throw new Error('Failed to send message');
+
+            const data = await response.json();
+            const assistantMsgId = data['assistant_message_id'];
+
+            // Update assistant message ID
+            if (assistantMsgId) {
+                setMessages(prev => prev.map(msg => 
+                    msg.id === assistantMsg.id ? { ...msg, id: assistantMsgId } : msg
+                ));
+            }
+
+            setIsTyping(false);
+        } catch (error) {
+            console.error('Error sending message:', error);
+            setIsTyping(false);
+            // Remove placeholder message on error
+            setMessages(prev => prev.filter(msg => msg.id !== assistantMsg.id));
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
 
     // useEffect(() => {
     //     const fetchProblem = async () => {
@@ -130,11 +254,53 @@ export default function InterviewOverlay({ company, voice, topic, details, onEnd
 
                         {chatOpen && (
                             <div className="chat-container">
-                                <div className="ai-container">
-                                    Hello! My name is <b>{voice}</b> and welcome to your interview with <b>{company}</b>.
+                                <div className="messages-list">
+                                    {messages.map(msg => (
+                                        <div 
+                                            key={msg.id} 
+                                            className={msg.role === 'user' ? 'user-container' : 'ai-container'}
+                                        >
+                                            <div className="message-avatar">
+                                                {msg.role === 'user' ? 'U' : 'AI'}
+                                            </div>
+                                            <div className="message-content">
+                                                {msg.content || '...'}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    
+                                    {isTyping && (
+                                        <div className="ai-container">
+                                            <div className="message-avatar">AI</div>
+                                            <div className="message-content">
+                                                <div className="typing-indicator">
+                                                    <span></span>
+                                                    <span></span>
+                                                    <span></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    <div ref={messagesEndRef} />
                                 </div>
-                                <div className="user-container">
-                                    Working on it...
+
+                                <div className="input-container">
+                                    <textarea
+                                        value={messageInput}
+                                        onChange={(e) => setMessageInput(e.target.value)}
+                                        onKeyDown={handleKeyDown}
+                                        placeholder="Type your message..."
+                                        disabled={isSending}
+                                        rows={2}
+                                    />
+                                    <button 
+                                        onClick={sendMessage}
+                                        disabled={isSending || !messageInput.trim()}
+                                        className="send-btn"
+                                    >
+                                        Send
+                                    </button>
                                 </div>
                             </div>
                         )}
