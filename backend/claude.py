@@ -169,3 +169,56 @@ def stream_haiku(conversation_id):
         for text in stream.text_stream:
             # print(text)
             yield text
+
+def build_static_code_review_msgs(conversation_id: str, files: dict, language: str = 'python', extra_instructions: str = None):
+    """
+    Build messages for a static-only code review. This explicitly tells the LLM
+    that it must not suggest running the code or assume test results; instead
+    it should analyze the provided source files statically, point out likely
+    bugs, edge cases, performance concerns, and ask clarifying questions.
+
+    - `files` is a dict filename -> source text
+    - `language` is a short string like 'python' or 'java'
+    """
+    history = build_trimmed_history(conversation_id)
+
+    system_text = SYSTEM_PROMPT + (
+        "\n\nSTATIC CODE REVIEW MODE:\nYou must NOT assume code has been executed, and do NOT instruct the user to run or execute code.\n"
+        "Analyze the submitted files statically: find likely logic errors, edge cases, API misuse, security issues, style problems, missing tests, and ask concise clarifying questions you need to give better feedback.\n"
+        "DO NOT propose runnable patches or full solutions. Provide short code snippets only when illustrating a single-line fix; keep overall feedback concise (<200 words)."
+    )
+
+    msgs = []
+    for m in history:
+        msgs.append({'role': m['role'], 'content': m['content']})
+
+    parts = [f"Please perform a static code review for the candidate's submission in {language}. Do not run or assume any execution results."]
+
+    for fname, src in (files or {}).items():
+        safe_src = (src or '')
+        parts.append(f"FILE: {fname}\n" + safe_src[:8000])
+
+    if extra_instructions:
+        parts.append(str(extra_instructions))
+
+    user_content = "\n\n".join(parts)
+    msgs.append({'role': 'user', 'content': user_content})
+    return system_text, msgs
+
+
+def stream_static_code_review(conversation_id: str, files: dict, language: str = 'python', extra_instructions: str = None):
+    """
+    Stream static-only critique from the model; yields partial text chunks.
+    """
+    system_text, msgs = build_static_code_review_msgs(conversation_id, files, language, extra_instructions)
+    msgs_for_api = build_msg_ctx(msgs)
+
+    with client.messages.stream(
+        max_tokens=1024,
+        temperature=0.2,
+        messages=msgs_for_api,
+        model=model,
+        system=system_text,
+    ) as stream:
+        for chunk in stream.text_stream:
+            yield chunk
