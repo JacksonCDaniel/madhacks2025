@@ -268,10 +268,12 @@
             <h1>🎙️ AI Conversation</h1>
             <div class="header-actions">
                 <button class="btn-small" onclick="app.newConversation()">New Chat</button>
+                <!-- <button class="btn-small" onclick="app.exportConversation()">Export</button> -->
             </div>
         </div>
 
         <div class="messages-container" id="messages">
+            <!-- <div class="status">Starting new conversation...</div> -->
         </div>
 
         <div class="input-container">
@@ -465,6 +467,75 @@
                 }
             },
 
+            async playTTS(messageId, button) {
+                try {
+                    button.disabled = true;
+                    button.textContent = '🔊 Loading...';
+
+                    // Build a simple streaming URL the browser's <audio> can play
+                    const streamUrl = `${API_BASE}/conversations/${this.conversationId}/tts_stream?message_id=${encodeURIComponent(messageId)}`;
+
+                    // Attach or create an <audio> element for this message
+                    const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                    let audioEl = null;
+                    if (messageEl) {
+                        audioEl = messageEl.querySelector('audio');
+                        if (!audioEl) {
+                            audioEl = document.createElement('audio');
+                            audioEl.controls = true;
+                            // prefer not to preload entire stream until play is requested
+                            audioEl.preload = 'none';
+                            messageEl.querySelector('.message-content').appendChild(audioEl);
+                        } else {
+                            audioEl.pause();
+                            audioEl.removeAttribute('src');
+                        }
+                    } else {
+                        // if message element not found, append to messages container
+                        audioEl = document.createElement('audio');
+                        audioEl.controls = true;
+                        audioEl.preload = 'none';
+                        document.getElementById('messages').appendChild(audioEl);
+                    }
+
+                    // Set the streaming URL as the source and play
+                    audioEl.src = streamUrl;
+                    try { await audioEl.play(); } catch (e) {
+                        // autoplay may be blocked; user can press play
+                        console.warn('Autoplay prevented', e);
+                    }
+
+                    button.textContent = '🔊 Play';
+                } catch (error) {
+                    this.showStatus('TTS error: ' + (error.message || error), 'error');
+                    button.textContent = '🔊 TTS';
+                } finally {
+                    button.disabled = false;
+                }
+            },
+
+            async exportConversation() {
+                if (!this.conversationId) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/export`);
+                    if (!response.ok) throw new Error('Export failed');
+
+                    const data = await response.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `conversation-${this.conversationId}.json`;
+                    a.click();
+
+                    this.showStatus('Conversation exported!', 'success');
+                } catch (error) {
+                    this.showStatus('Export error: ' + error.message, 'error');
+                }
+            },
+
             newConversation() {
                 // if (confirm('Start a new conversation? Current conversation will be saved.')) {
                     localStorage.removeItem('conversationId');
@@ -496,6 +567,20 @@
                     const text = document.createElement('div');
                     text.textContent = msg.content || '...';
                     content.appendChild(text);
+
+                    // Add TTS button for assistant messages
+                    if (msg.role === 'assistant' && msg.content) {
+                        const actions = document.createElement('div');
+                        actions.className = 'message-actions';
+
+                        const ttsBtn = document.createElement('button');
+                        ttsBtn.className = 'message-btn';
+                        ttsBtn.textContent = '🔊 TTS';
+                        ttsBtn.onclick = () => this.playTTS(msg.id, ttsBtn);
+                        actions.appendChild(ttsBtn);
+
+                        content.appendChild(actions);
+                    }
 
                     msgEl.appendChild(avatar);
                     msgEl.appendChild(content);
