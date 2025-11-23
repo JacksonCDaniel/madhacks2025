@@ -10,9 +10,9 @@ MODEL_ID = os.environ.get('MODEL_ID', 'b545c585f631496c914815291da4e893')
 # bobspo pants
 # MODEL_ID = os.environ.get('TTS_MODEL_ID', '54e3a85ac9594ffa83264b8a494b901b')
 
-MALE_MODEL_ID = os.environ.get('M_MODEL_ID', '802e3bc2b27e49c2995d23ef70e6ac89')
+# MALE_MODEL_ID = os.environ.get('M_MODEL_ID', '802e3bc2b27e49c2995d23ef70e6ac89')
 FEMALE_MODEL_ID = os.environ.get('F_MODEL_ID', 'b545c585f631496c914815291da4e893')
-DEFAULT_MODEL_ID = os.environ.get('D_MODEL_ID', FEMALE_MODEL_ID)
+# DEFAULT_MODEL_ID = os.environ.get('D_MODEL_ID', FEMALE_MODEL_ID)
 
 client = FishAudio()
 
