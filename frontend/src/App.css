@@ -100,6 +100,26 @@
 	margin: 0;
 }
 
+/* Audio stop/play button in chat header */
+.audio-btn {
+	padding: 6px 10px;
+	border-radius: 8px;
+	border: none;
+	background: #444;
+	color: white;
+	cursor: default;
+	font-size: 13px;
+}
+.audio-btn.playing {
+	background: linear-gradient(135deg, #d93636 0%, #b52a2a 100%);
+	box-shadow: 0 4px 12px rgba(217,54,54,0.25);
+	cursor: pointer;
+}
+.audio-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
 .chat-container {
 	background-color: #2e2e2e;
 	flex: 1;

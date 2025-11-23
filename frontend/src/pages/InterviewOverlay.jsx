@@ -21,6 +21,8 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const [isSending, setIsSending] = useState(false);
     const socketRef = useRef(null);
     const messagesListRef = useRef(null);
+    const audioRef = useRef(null);
+    const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
     // Auto-scroll to bottom. Use the messages list element so we can
     // scroll to the container's scrollHeight after layout changes.
@@ -159,6 +161,9 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 setMessages(prev => prev.map(msg => 
                     msg.id === assistantMsg.id ? { ...msg, id: assistantMsgId } : msg
                 ));
+                // Start playing the TTS stream for the assistant message.
+                // Ensure we only play the latest message: stop any existing audio first.
+                startAudioForMessage(assistantMsgId);
             }
 
             // Do not clear `isTyping` here: keep the typing indicator
@@ -173,12 +178,71 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         }
     };
 
+    const stopAudioPlayback = () => {
+        const audio = audioRef.current;
+        if (audio) {
+            try {
+                audio.pause();
+            } catch (err) {
+                console.debug('audio pause error', err);
+            }
+            // Clear src to abort network download for streaming audio
+            try { audio.src = ''; } catch (err) { console.debug('audio clear src error', err); }
+            audioRef.current = null;
+        }
+        setIsPlayingAudio(false);
+    };
+
+    const startAudioForMessage = (msgId) => {
+        if (!msgId || !conversationId) return;
+        // Stop any current playback first
+        stopAudioPlayback();
+
+        const streamUrl = `${API_BASE}/conversations/${conversationId}/messages/${msgId}/tts_stream`;
+
+        // Create a new Audio object and autoplay
+        try {
+            const audio = new Audio(streamUrl);
+            audio.autoplay = true;
+            audioRef.current = audio;
+
+            // Update playing state
+            const playPromise = audio.play();
+            if (playPromise && typeof playPromise.then === 'function') {
+                playPromise.then(() => setIsPlayingAudio(true)).catch(() => setIsPlayingAudio(true));
+            } else {
+                setIsPlayingAudio(true);
+            }
+
+            audio.onended = () => {
+                setIsPlayingAudio(false);
+                audioRef.current = null;
+            };
+
+            audio.onerror = () => {
+                setIsPlayingAudio(false);
+                audioRef.current = null;
+            };
+        } catch (err) {
+            console.error('Failed to start audio:', err);
+            setIsPlayingAudio(false);
+            audioRef.current = null;
+        }
+    };
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
     };
+
+    // Cleanup audio on unmount
+    useEffect(() => {
+        return () => {
+            stopAudioPlayback();
+        };
+    }, []);
 
     // useEffect(() => {
     //     const fetchProblem = async () => {
@@ -262,10 +326,21 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                         >
                         <div className="chat-header">
                             {chatOpen && <h2 className="chat-title">Interviewer Chatlog</h2>}
-                            <button
-                                onClick={() => setChatOpen(!chatOpen)}>
-                                {chatOpen ? "X" : <MessageSquare />}
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {/* Audio stop button - active only while playing */}
+                                <button
+                                    className={"audio-btn " + (isPlayingAudio ? 'playing' : '')}
+                                    onClick={() => { if (isPlayingAudio) stopAudioPlayback(); }}
+                                    title={isPlayingAudio ? 'Stop playback' : 'No audio playing'}
+                                    disabled={!isPlayingAudio}
+                                >
+                                    {isPlayingAudio ? 'Stop' : 'Audio'}
+                                </button>
+                                <button
+                                    onClick={() => setChatOpen(!chatOpen)}>
+                                    {chatOpen ? "X" : <MessageSquare />}
+                                </button>
+                            </div>
                         </div>
 
                         {chatOpen && (
