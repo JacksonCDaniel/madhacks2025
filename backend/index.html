@@ -417,39 +417,42 @@
                     button.disabled = true;
                     button.textContent = '🔊 Loading...';
 
-                    const response = await fetch(`${API_BASE}/conversations/${this.conversationId}/tts`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            message_id: messageId,
-                            response_mode: 'sync'
-                        })
-                    });
+                    // Build a simple streaming URL the browser's <audio> can play
+                    const streamUrl = `${API_BASE}/conversations/${this.conversationId}/tts_stream?message_id=${encodeURIComponent(messageId)}`;
 
-                    if (!response.ok) throw new Error('TTS failed');
-
-                    const audioBlob = await response.blob();
-                    const audioUrl = URL.createObjectURL(audioBlob);
-
-                    // Store in cache
-                    this.audioCache[messageId] = audioUrl;
-
-                    // Add audio player to message
+                    // Attach or create an <audio> element for this message
                     const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                    let audioEl = null;
                     if (messageEl) {
-                        let audioEl = messageEl.querySelector('audio');
+                        audioEl = messageEl.querySelector('audio');
                         if (!audioEl) {
                             audioEl = document.createElement('audio');
                             audioEl.controls = true;
+                            // prefer not to preload entire stream until play is requested
+                            audioEl.preload = 'none';
                             messageEl.querySelector('.message-content').appendChild(audioEl);
+                        } else {
+                            audioEl.pause();
+                            audioEl.removeAttribute('src');
                         }
-                        audioEl.src = audioUrl;
-                        audioEl.play();
+                    } else {
+                        // if message element not found, append to messages container
+                        audioEl = document.createElement('audio');
+                        audioEl.controls = true;
+                        audioEl.preload = 'none';
+                        document.getElementById('messages').appendChild(audioEl);
+                    }
+
+                    // Set the streaming URL as the source and play
+                    audioEl.src = streamUrl;
+                    try { await audioEl.play(); } catch (e) {
+                        // autoplay may be blocked; user can press play
+                        console.warn('Autoplay prevented', e);
                     }
 
                     button.textContent = '🔊 Play';
                 } catch (error) {
-                    this.showStatus('TTS error: ' + error.message, 'error');
+                    this.showStatus('TTS error: ' + (error.message || error), 'error');
                     button.textContent = '🔊 TTS';
                 } finally {
                     button.disabled = false;
@@ -562,7 +565,7 @@
                 status.textContent = message;
                 container.appendChild(status);
 
-                setTimeout(() => status.remove(), 3000);
+                // setTimeout(() => status.remove(), 3000);
             },
 
             handleKeyDown(event) {
@@ -578,4 +581,3 @@
     </script>
 </body>
 </html>
-

@@ -10,7 +10,7 @@ from flask_cors import CORS
 
 # Local modules
 from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages
-from claude import build_trimmed_history, call_haiku, estimate_tokens
+from claude import build_trimmed_history, call_haiku
 from redis_queue import enqueue_job, get_job
 from tts import synthesize_bytes, synthesize_stream, STREAM_THRESHOLD_CHARS
 
@@ -180,6 +180,55 @@ def tts_endpoint(conversation_id):
         }
         enqueue_job(job)
         return jsonify({"job_id": job["job_id"]}), 202
+
+
+@app.route('/conversations/<conversation_id>/tts_stream', methods=['POST','GET'])
+def tts_stream_endpoint(conversation_id):
+    """Stream TTS audio bytes to the client as they are generated.
+    For POST: accept JSON { "message_id"?: str, "text"?: str, "voice"?: str }.
+    For GET: accept query params ?message_id=... or ?text=...&voice=...
+    Response: chunked audio/mpeg stream (suitable for <audio src="..."> playback)
+    """
+    # Support both POST (JSON body) and GET (query string) for streaming URL usage
+    if request.method == 'POST':
+        if not request.is_json:
+            return jsonify({"error": "expected JSON body"}), 400
+        payload = request.get_json()
+        message_id = payload.get('message_id')
+        text = payload.get('text')
+        voice = payload.get('voice')
+    else:
+        # GET
+        message_id = request.args.get('message_id')
+        text = request.args.get('text')
+        voice = request.args.get('voice')
+
+    if message_id:
+        msgs = get_messages(conversation_id, limit=1000)
+        message = next((m for m in msgs if m['id'] == message_id), None)
+        if not message:
+            return jsonify({"error": "message_id not found"}), 404
+        text_to_speak = message['content']
+    else:
+        if not text or not isinstance(text, str) or not text.strip():
+            return jsonify({"error": "text is required when message_id is not provided"}), 400
+        text_to_speak = text
+
+    if len(text_to_speak) > MAX_TEXT_CHARS:
+        return jsonify({"error": f"text too long (max {MAX_TEXT_CHARS} chars)"}), 413
+
+    try:
+        # Return a streaming response the browser can play via <audio src="..."> (GET)
+        # Use direct_passthrough so Flask/Werkzeug doesn't buffer the iterable
+        resp = Response(synthesize_stream(text_to_speak), mimetype='audio/mpeg', direct_passthrough=True)
+        # Avoid setting Content-Length so Transfer-Encoding: chunked is used
+        # Advise proxies not to buffer the response
+        resp.headers['Cache-Control'] = 'no-cache'
+        resp.headers['X-Accel-Buffering'] = 'no'
+        resp.headers['Connection'] = 'keep-alive'
+        return resp
+    except Exception as e:
+        return jsonify({"error": "TTS streaming failed", "detail": str(e)}), 500
 
 @app.route('/jobs/<job_id>', methods=['GET'])
 def get_job_endpoint(job_id):
