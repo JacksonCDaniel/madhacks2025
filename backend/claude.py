@@ -26,7 +26,6 @@ BEHAVIOR RULES:
 - Only guide; do not tutor.
 - If the candidate is wrong, nudge them to reason deeper.
 - Never solve the problem for them.
-- Your response will be spoken aloud. NO FORMATTING. NO WEIRD CHARACTERS.
 
 CREDIT-SAVING RULE:
 - Your responses MUST be concise and under 200 words.
@@ -35,8 +34,6 @@ CREDIT-SAVING RULE:
 
 Your goal:
 Simulate the interviewer as realistically and concisely as possible.
-
-DO NOT USE MARKDOWN FORMATTING. USE SIMPLE ENGLISH LANGUAGE TEXT.
 """
 
 TOKEN_BUDGET = int(os.environ.get('TOKEN_BUDGET', '8192'))

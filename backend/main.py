@@ -3,7 +3,7 @@ load_dotenv()
 
 import os
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime
 from flask import Flask, request, send_file, jsonify, Response
 from flask_cors import CORS
 
@@ -29,14 +29,15 @@ init_db()
 
 # Helpers
 def now_iso():
-    return datetime.now(UTC).isoformat() + "Z"
+    return datetime.utcnow().isoformat() + "Z"
 
 @app.route('/conversations', methods=['POST'])
 def create_conversation_endpoint():
     payload = request.get_json(silent=True) or {}
     user_id = payload.get('user_id')
+    system_message = payload.get('system_message')
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
-    conv_id = create_conversation(user_id=user_id, metadata=metadata)
+    conv_id = create_conversation(user_id=user_id, system_message=system_message, metadata=metadata)
     return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
 
 @app.route('/conversations/<conversation_id>', methods=['GET'])

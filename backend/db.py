@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import datetime, UTC
 
-DB_PATH = 'data.db'
+DB_PATH = './data.db'
 
 def _now_iso():
     return datetime.now(UTC).isoformat() + 'Z'
@@ -21,6 +21,7 @@ def init_db():
             updated_at TEXT NOT NULL,
             user_id TEXT,
             status TEXT NOT NULL DEFAULT 'active',
+            system_message TEXT,
             metadata TEXT,
             last_summary_message_id TEXT
         )
@@ -50,7 +51,7 @@ def _connect():
     conn.row_factory = sqlite3.Row
     return conn
 
-def create_conversation(user_id=None, metadata=None):
+def create_conversation(user_id=None, system_message=None, metadata=None):
     conn = _connect()
     try:
         cur = conn.cursor()
@@ -58,8 +59,8 @@ def create_conversation(user_id=None, metadata=None):
         now = _now_iso()
         meta_text = json.dumps(metadata or {})
         cur.execute(
-            "INSERT INTO conversations (id, created_at, updated_at, user_id, metadata) VALUES (?, ?, ?, ?, ?)",
-            (conv_id, now, now, user_id, meta_text),
+            "INSERT INTO conversations (id, created_at, updated_at, user_id, system_message, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            (conv_id, now, now, user_id, system_message, meta_text),
         )
         conn.commit()
         return conv_id
@@ -81,6 +82,7 @@ def get_conversation(conversation_id):
             'updated_at': row['updated_at'],
             'user_id': row['user_id'],
             'status': row['status'],
+            'system_message': row['system_message'],
             'metadata': json.loads(row['metadata']) if row['metadata'] else {},
             'last_summary_message_id': row['last_summary_message_id'],
         }
