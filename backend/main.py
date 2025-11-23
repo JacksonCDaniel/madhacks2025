@@ -80,7 +80,7 @@ try:
 except KeyError:
     raise RuntimeError("WS_SECRET_KEY environment variable is missing")
 app.config['SECRET_KEY'] = ws_secret_key
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Configuration
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "5000"))
@@ -94,12 +94,12 @@ init_db()
 def create_conversation_endpoint():
     payload = request.get_json()
     user_id = payload.get('user_id')
-    problem_title = payload.get('problem_title')
-    problem_desc = payload.get('problem_desc')
+    problem_title = payload.get('problem_title', '')
+    problem_desc = payload.get('problem_desc', '')
     system_message = (SYSTEM_PROMPT
                       .replace("{{problem_title}}", problem_title)
                       .replace("{{problem_desc}}", problem_desc))
-    print(system_message)
+    # print(system_message)
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
     conv_id = create_conversation(system_message=system_message, user_id=user_id, metadata=metadata)
     return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
