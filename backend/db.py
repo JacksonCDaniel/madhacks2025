@@ -5,7 +5,7 @@ from datetime import datetime, UTC
 
 DB_PATH = './data.db'
 
-def _now_iso():
+def now_iso():
     return datetime.now(UTC).isoformat() + 'Z'
 
 
@@ -21,7 +21,6 @@ def init_db():
             updated_at TEXT NOT NULL,
             user_id TEXT,
             status TEXT NOT NULL DEFAULT 'active',
-            system_message TEXT,
             metadata TEXT,
             last_summary_message_id TEXT
         )
@@ -51,16 +50,16 @@ def _connect():
     conn.row_factory = sqlite3.Row
     return conn
 
-def create_conversation(user_id=None, system_message=None, metadata=None):
+def create_conversation(user_id=None, metadata=None):
     conn = _connect()
     try:
         cur = conn.cursor()
         conv_id = str(uuid.uuid4())
-        now = _now_iso()
+        now = now_iso()
         meta_text = json.dumps(metadata or {})
         cur.execute(
-            "INSERT INTO conversations (id, created_at, updated_at, user_id, system_message, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            (conv_id, now, now, user_id, system_message, meta_text),
+            "INSERT INTO conversations (id, created_at, updated_at, user_id, metadata) VALUES (?, ?, ?, ?, ?)",
+            (conv_id, now, now, user_id, meta_text),
         )
         conn.commit()
         return conv_id
@@ -82,7 +81,6 @@ def get_conversation(conversation_id):
             'updated_at': row['updated_at'],
             'user_id': row['user_id'],
             'status': row['status'],
-            'system_message': row['system_message'],
             'metadata': json.loads(row['metadata']) if row['metadata'] else {},
             'last_summary_message_id': row['last_summary_message_id'],
         }
@@ -109,7 +107,7 @@ def insert_message(conversation_id, role, content, metadata=None):
     try:
         cur = conn.cursor()
         msg_id = str(uuid.uuid4())
-        created_at = _now_iso()
+        created_at = now_iso()
         tokens_est = max(1, int(len(content) / 4)) if content else None
         meta_text = json.dumps(metadata or {})
         cur.execute(

@@ -3,12 +3,11 @@ load_dotenv()
 
 import os
 import uuid
-from datetime import datetime
 from flask import Flask, request, send_file, jsonify, Response
 from flask_cors import CORS
 
 # Local modules
-from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages
+from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages, now_iso
 from claude import build_trimmed_history, call_haiku, stream_haiku
 from tts import synthesize_stream
 import threading
@@ -28,16 +27,12 @@ TOKEN_BUDGET = int(os.environ.get("TOKEN_BUDGET", "8192"))
 init_db()
 
 # Helpers
-def now_iso():
-    return datetime.utcnow().isoformat() + "Z"
-
 @app.route('/conversations', methods=['POST'])
 def create_conversation_endpoint():
     payload = request.get_json(silent=True) or {}
     user_id = payload.get('user_id')
-    system_message = payload.get('system_message')
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
-    conv_id = create_conversation(user_id=user_id, system_message=system_message, metadata=metadata)
+    conv_id = create_conversation(user_id=user_id, metadata=metadata)
     return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
 
 @app.route('/conversations/<conversation_id>', methods=['GET'])

@@ -51,7 +51,6 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
     """
     token_budget = token_budget or TOKEN_BUDGET
     conv = get_conversation(conversation_id)
-    system_msg = conv.get('system_message') if conv else None
 
     # Load all messages (could be optimized)
     messages = get_messages(conversation_id, limit=10000)
@@ -61,7 +60,7 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
     regular = [m for m in messages if m['role'] != 'memory']
 
     # Start accounting tokens with system message
-    running = estimate_tokens(system_msg or '')
+    running = 0
     included = []
 
     # Iterate recent messages in reverse chronological order
@@ -78,8 +77,6 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
     included = list(reversed(included))
 
     assembled = []
-    if system_msg:
-        assembled.append({'role': 'system', 'content': system_msg})
     # include memory messages
     for mm in memory_messages:
         assembled.append({'role': 'memory', 'content': mm['content']})
