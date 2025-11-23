@@ -1,7 +1,14 @@
 import os
 from fishaudio import FishAudio, TTSConfig
 
-MODEL_ID = os.environ.get('MODEL_ID', 'e58b0d7efca34eb38d5c4985e378abcb')
+# rump
+# MODEL_ID = os.environ.get('MODEL_ID', 'e58b0d7efca34eb38d5c4985e378abcb')
+# dohnny jepp
+# MODEL_ID = os.environ.get('TTS_MODEL_ID', 'fb722cecaf534263b409223e524f3e60')
+# egirl
+# MODEL_ID = os.environ.get('TTS_MODEL_ID', '8ef4a238714b45718ce04243307c57a7')
+# bobspo pants
+MODEL_ID = os.environ.get('TTS_MODEL_ID', '54e3a85ac9594ffa83264b8a494b901b')
 
 client = FishAudio()
 

@@ -411,21 +411,28 @@
 
                     if (!response.ok) throw new Error('Failed to send message');
 
-                    // console.log('before blob');
+                    const data = await response.json();
+                    console.log(data);
 
-                    // Response is audio data, not JSON
-                    const audioBlob = await response.blob();
+                    const assistantMsgId = data['assistant_message_id'];
 
-                    // the blob waits for all chunks :/
-                    // console.log('after blob');
+                    // Update the assistant message ID to use the temp ID for tracking
+                    if (assistantMsgId) {
+                        assistantMsg.id = assistantMsgId;
+                        const assistantMsgEl = document.querySelector(`[data-message-id^="temp-assistant-"]`);
+                        if (assistantMsgEl) {
+                            assistantMsgEl.setAttribute('data-message-id', assistantMsgId);
+                        }
+                    }
 
-                    // Find the assistant message element and add audio player
+                    // Use the new GET streaming endpoint for real-time TTS
                     const assistantMsgEl = document.querySelector(`[data-message-id="${assistantMsg.id}"]`);
-                    if (assistantMsgEl) {
+                    if (assistantMsgEl && assistantMsgId) {
+                        const streamUrl = `${API_BASE}/conversations/${this.conversationId}/messages/${assistantMsgId}/tts_stream`;
                         const audioEl = document.createElement('audio');
                         audioEl.controls = true;
                         audioEl.autoplay = true;
-                        audioEl.src = URL.createObjectURL(audioBlob);
+                        audioEl.src = streamUrl;
                         assistantMsgEl.querySelector('.message-content').appendChild(audioEl);
                     }
 

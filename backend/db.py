@@ -102,11 +102,11 @@ def delete_conversation(conversation_id):
         conn.close()
 
 
-def insert_message(conversation_id, role, content, metadata=None):
+def insert_message(conversation_id, role, content, msg_id=None, metadata=None):
     conn = _connect()
     try:
         cur = conn.cursor()
-        msg_id = str(uuid.uuid4())
+        msg_id = msg_id or str(uuid.uuid4())
         created_at = now_iso()
         tokens_est = max(1, int(len(content) / 4)) if content else None
         meta_text = json.dumps(metadata or {})
