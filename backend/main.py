@@ -101,12 +101,18 @@ def create_conversation_endpoint():
     user_id = payload.get('user_id')
     problem_title = payload.get('problem_title', '')
     problem_desc = payload.get('problem_desc', '')
+    greeting = payload.get('greeting', '')
     system_message = (SYSTEM_PROMPT
                       .replace("{{problem_title}}", problem_title)
                       .replace("{{problem_desc}}", problem_desc))
     print(system_message)
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
     conv_id = create_conversation(system_message=system_message, user_id=user_id, metadata=metadata)
+
+    # Insert initial greeting message if provided
+    if greeting:
+        insert_message(conversation_id=conv_id, role='assistant', content=greeting)
+
     return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
 
 @app.route('/conversations/<conversation_id>', methods=['GET'])

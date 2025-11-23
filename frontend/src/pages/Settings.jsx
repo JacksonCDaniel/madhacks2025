@@ -122,7 +122,7 @@ The first k elements of nums should contain the unique numbers in sorted order. 
         }
     }
 
-    const isFormValid = company !== "" && voice !== "" && topic !== "" ;
+    const isFormValid = /* company !== "" && */ voice !== "" && topic !== "" ;
     return (
         <div className="home-page">
             
@@ -130,12 +130,12 @@ The first k elements of nums should contain the unique numbers in sorted order. 
                 <h1>Coding Studio</h1>
 
                 <VoiceSelection voice={voice} setVoice={setVoice}/>
-                <CompanySelection company={company} setCompany={setCompany}/>
+                {/* <CompanySelection company={company} setCompany={setCompany}/> */}
                 <TopicSelection topic={topic} setTopic={setTopic}/>
                 
                 <button 
                     disabled={!isFormValid} 
-                    onClick={() => onStart({ company, voice, topic, details: topicDetails[topic] })}>Start Interview</button>
+                    onClick={() => onStart({ /* company,  */voice, topic, details: topicDetails[topic] })}>Start Interview</button>
             </div>
             
         </div>

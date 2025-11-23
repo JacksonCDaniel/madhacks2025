@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "motion/react";
 
 const API_BASE = 'http://127.0.0.1:5067';
 
-export default function InterviewOverlay({ company, voice, details, onEnd }) {
+export default function InterviewOverlay({ voice, details, onEnd }) {
     const [chatOpen, setChatOpen] = useState(true);
     const [code, setCode] = useState("");
     const editorRef = useRef(null);
@@ -106,13 +106,15 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     useEffect(() => {
         const createConversation = async () => {
             try {
+                const startMsg = `Hello! My name is ${voice}. I'll be conducting your technical interview today.`;
                 const response = await fetch(`${API_BASE}/conversations`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         user_id: 'web-user',
                         problem_title: details.title || 'Interview Problem',
-                        problem_desc: details.description || ''
+                        problem_desc: details.description || '',
+                        greeting: startMsg
                     })
                 });
 
@@ -125,7 +127,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 setMessages([{
                     id: 'greeting',
                     role: 'assistant',
-                    content: `Hello! My name is ${voice} and welcome to your interview with ${company}.`,
+                    content: startMsg,
                     created_at: new Date().toISOString()
                 }]);
             } catch (error) {
@@ -134,7 +136,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         };
 
         createConversation();
-    }, [company, voice, details]);
+    }, [voice, details]);
 
     const sendMessage = async (overrideContent) => {
         const raw = overrideContent !== undefined ? overrideContent : messageInput;

@@ -7,7 +7,7 @@ import Summary from './pages/Summary'
 function App() {
 
 	const [currentPage, setCurrentPage] = useState("settings");
-	const [interviewData, setInterviewData] = useState({ company: "", voice: "", topic: "" });
+	const [interviewData, setInterviewData] = useState({ voice: "", topic: "" });
 
 	return (
 		<>
