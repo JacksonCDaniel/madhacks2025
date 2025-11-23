@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
@@ -9,7 +10,7 @@ from flask_cors import CORS
 
 # Local modules
 from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages, now_iso
-from claude import build_trimmed_history, call_haiku, stream_haiku
+from claude import build_trimmed_history, stream_haiku, SYSTEM_PROMPT
 from tts import synthesize_stream, synthesize_stream_gen
 import threading
 import queue
@@ -133,6 +134,7 @@ def post_message_endpoint(conversation_id):
     payload = request.get_json()
     role = payload.get('role', 'user')
     sid = payload.get('sid')
+    code = payload.get('code', None)
     content = payload.get('content')
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
 
@@ -147,7 +149,7 @@ def post_message_endpoint(conversation_id):
     msg_id = insert_message(conversation_id=conversation_id, role=role, content=content, metadata=metadata)
 
     # For sync responses, call Claude Haiku immediately (trimmed)
-    text_gen = stream_haiku(conversation_id)
+    text_gen = stream_haiku(code, conversation_id)
 
     assistant_id = str(uuid.uuid4())
 

@@ -1,15 +1,15 @@
 import os
 from db import get_messages, get_conversation, insert_message
 from anthropic import Anthropic
-from anthropic.types import TextBlock
+# from anthropic.types import TextBlock
 
 # Hardcoded system prompt (interviewer persona). Must be concise by design; model should follow rules.
 SYSTEM_PROMPT =  """
-You are an interviewer at Google for a technical software engineering new grad role.
+You are an interviewer at (big tech company, be vague) for a technical software engineering new grad role.
 Simulate a realistic LeetCode-style interview.
 
 INTERVIEW FLOW RULES:
-1. Present one coding problem.
+1. Present the given coding problem (provided below).
 2. Discuss a test case and think through it together.
 3. Ask them to give a high-level plan before coding.
 4. Once they provide a plan, tell them to implement it.
@@ -26,6 +26,7 @@ BEHAVIOR RULES:
 - Only guide; do not tutor.
 - If the candidate is wrong, nudge them to reason deeper.
 - Never solve the problem for them.
+- In each user response, you will get their code at the end of the message. It will be marked with "BEGIN_CODE:". Use the current state of their code to thoughtfully inform your next response.
 - Your response will be spoken aloud. NO FORMATTING. NO WEIRD CHARACTERS.
 
 
@@ -36,6 +37,10 @@ CREDIT-SAVING RULE:
 
 Your goal:
 Simulate the interviewer as realistically and concisely as possible.
+
+Problem Title: {{problem_title}}
+Problem Description:
+{{problem_desc}}
 
 DO NOT USE MARKDOWN FORMATTING. USE SIMPLE ENGLISH LANGUAGE TEXT.
 """
@@ -88,40 +93,40 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
     for m in included:
         assembled.append({'role': m['role'], 'content': m['content']})
 
-    return assembled
+    return conv['system_message'], assembled
 
 client = Anthropic()
 model = 'claude-haiku-4-5-20251001'
 # Use temperature 0.0 for deterministic responses
 temperature = 0.0
 
-def call_haiku(messages):
-    """Call Anthropic (Claude) via the `anthropic` package using the hardcoded system prompt.
-    Messages must be a chronological list of dicts: {role, content}.
-    Returns assistant text.
-    """
+# def call_haiku(messages):
+#     """Call Anthropic (Claude) via the `anthropic` package using the hardcoded system prompt.
+#     Messages must be a chronological list of dicts: {role, content}.
+#     Returns assistant text.
+#     """
+#
+#     msgs = build_msg_ctx(messages)
+#
+#     # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
+#     response = client.messages.create(
+#         max_tokens=1024,
+#         temperature=temperature,
+#         messages=msgs,
+#         model=model,
+#         system=SYSTEM_PROMPT,
+#     )
+#
+#     blocks = []
+#
+#     for b in response.content:
+#         if isinstance(b, TextBlock):
+#             blocks.append(b.text)
+#
+#     return '\n\n'.join(blocks).strip()
 
-    msgs = build_msg_ctx(messages)
 
-    # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
-    response = client.messages.create(
-        max_tokens=1024,
-        temperature=temperature,
-        messages=msgs,
-        model=model,
-        system=SYSTEM_PROMPT,
-    )
-
-    blocks = []
-
-    for b in response.content:
-        if isinstance(b, TextBlock):
-            blocks.append(b.text)
-
-    return '\n\n'.join(blocks).strip()
-
-
-def build_msg_ctx(messages):
+def build_msg_ctx(messages, code=None):
     # Build structured messages array for the Messages API (only user/assistant roles)
     msgs = []
     for m in messages:
@@ -134,6 +139,14 @@ def build_msg_ctx(messages):
             msgs.append({"role": "user", "content": content})
         elif role == 'assistant':
             msgs.append({"role": "assistant", "content": content})
+    # Iterate msgs in reverse and add to the last one with code if provided
+    if code:
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i]['role'] == 'user':
+                # Add to content with code
+                msgs[i]['content'] += '\n\nBEGIN_CODE:\n```python\n' + (code or '') + '\n```'
+                break
+
     return msgs
 
 
@@ -150,11 +163,11 @@ def build_summary(messages_chunk):
 def insert_summary_message(conversation_id, summary_text):
     return insert_message(conversation_id=conversation_id, role='memory', content=summary_text, metadata={})
 
-def stream_haiku(conversation_id):
+def stream_haiku(code, conversation_id):
     # Build trimmed history synchronously
-    messages = build_trimmed_history(conversation_id)
+    system_msg, messages = build_trimmed_history(conversation_id)
 
-    msgs = build_msg_ctx(messages)
+    msgs = build_msg_ctx(messages, code=code)
 
     # print(msgs)
 
@@ -164,7 +177,7 @@ def stream_haiku(conversation_id):
         temperature=temperature,
         messages=msgs,
         model=model,
-        system=SYSTEM_PROMPT,
+        system=system_msg,
     ) as stream:
         for text in stream.text_stream:
             # print(text)
@@ -180,7 +193,7 @@ def build_static_code_review_msgs(conversation_id: str, files: dict, language: s
     - `files` is a dict filename -> source text
     - `language` is a short string like 'python' or 'java'
     """
-    history = build_trimmed_history(conversation_id)
+    _, history = build_trimmed_history(conversation_id)
 
     system_text = SYSTEM_PROMPT + (
         "\n\nSTATIC CODE REVIEW MODE:\nYou must NOT assume code has been executed, and do NOT instruct the user to run or execute code.\n"
