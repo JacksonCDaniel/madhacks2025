@@ -27,6 +27,9 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const bufferedChunksRef = useRef([]);
     const bufferTimerRef = useRef(null);
     const audioMsgIdRef = useRef(null);
+    // Debug: show the hidden audio element visibly on the page
+    const DEBUG_SHOW_AUDIO = true;
+    const audioDomRef = useRef(null);
 
     // Auto-scroll to bottom. Use the messages list element so we can
     // scroll to the container's scrollHeight after layout changes.
@@ -227,8 +230,12 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
         // immediately — wait for the first playable data and then delay
         // playback by 5s so text and audio start together after buffering.
         try {
-            const audio = new Audio();
+            // If a debug DOM audio element exists, use it so it becomes visible
+            // for inspection; otherwise create a programmatic Audio object.
+            const domAudio = audioDomRef.current;
+            const audio = domAudio ? domAudio : new Audio();
             audio.preload = 'auto';
+            // for DOM audio element we set src via property; for Audio() the same
             audio.src = streamUrl;
             audioRef.current = audio;
 
@@ -264,7 +271,11 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 }, 5000);
             };
 
-            audio.addEventListener('canplay', onCanPlay, { once: true });
+            if (audio.addEventListener) {
+                audio.addEventListener('canplay', onCanPlay, { once: true });
+            } else if (audio.oncanplay !== undefined) {
+                audio.oncanplay = onCanPlay;
+            }
 
             audio.onended = () => {
                 setIsPlayingAudio(false);
@@ -290,6 +301,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                 audioStartedRef.current = false;
                 audioMsgIdRef.current = null;
             };
+            
         } catch (err) {
             console.error('Failed to start audio:', err);
             setIsPlayingAudio(false);
@@ -562,6 +574,14 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                         
                 )}
             </AnimatePresence>
+            {/* Debug: visible audio element for inspection when DEBUG_SHOW_AUDIO is true */}
+            {DEBUG_SHOW_AUDIO && (
+                <audio
+                    ref={audioDomRef}
+                    controls
+                    style={{ position: 'fixed', left: 16, bottom: 16, zIndex: 3000, background: '#111', color: '#fff' }}
+                />
+            )}
         </motion.div>
     )
 }
