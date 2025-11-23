@@ -4,7 +4,7 @@ load_dotenv()
 import io
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from flask import Flask, request, send_file, jsonify, Response
 from flask_cors import CORS
 
@@ -18,7 +18,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Configuration
-DATA_DB_PATH = os.environ.get("DATA_DB_PATH", "./data.db")
+DATA_DB_PATH = os.environ.get("DATA_DB_PATH", "data.db")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "5000"))
 TOKEN_BUDGET = int(os.environ.get("TOKEN_BUDGET", "8192"))
@@ -28,33 +28,32 @@ init_db(DATA_DB_PATH)
 
 # Helpers
 def now_iso():
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(UTC).isoformat() + "Z"
 
-@app.route("/health", methods=["GET"])
-def health():
-    # Basic health check
-    db_ok = True
-    redis_ok = True
-    try:
-        # quick DB read
-        _ = get_conversation("non-existent-id")
-    except Exception:
-        db_ok = False
-    try:
-        _ = get_job("non-existent-job-id")
-    except Exception:
-        # get_job may raise if Redis not available
-        redis_ok = False
-    status = {"status": "ok" if db_ok and redis_ok else "degraded", "db": "ok" if db_ok else "error", "redis": "ok" if redis_ok else "error"}
-    return jsonify(status)
+# @app.route("/health", methods=["GET"])
+# def health():
+#     # Basic health check
+#     db_ok = True
+#     redis_ok = True
+#     try:
+#         # quick DB read
+#         _ = get_conversation("non-existent-id")
+#     except Exception:
+#         db_ok = False
+#     try:
+#         _ = get_job("non-existent-job-id")
+#     except Exception:
+#         # get_job may raise if Redis not available
+#         redis_ok = False
+#     status = {"status": "ok" if db_ok and redis_ok else "degraded", "db": "ok" if db_ok else "error", "redis": "ok" if redis_ok else "error"}
+#     return jsonify(status)
 
 @app.route('/conversations', methods=['POST'])
 def create_conversation_endpoint():
     payload = request.get_json(silent=True) or {}
     user_id = payload.get('user_id')
-    system_message = payload.get('system_message')
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
-    conv_id = create_conversation(user_id=user_id, system_message=system_message, metadata=metadata)
+    conv_id = create_conversation(user_id=user_id, metadata=metadata)
     return jsonify({"conversation_id": conv_id, "created_at": now_iso()}), 201
 
 @app.route('/conversations/<conversation_id>', methods=['GET'])
@@ -252,6 +251,13 @@ def index():
     if os.path.exists(path):
         return send_file(path)
     return jsonify({"error": "index.html not found"}), 404
+
+@app.route('/record')
+def index():
+    path = os.path.join(os.path.dirname(__file__), 'record.html')
+    if os.path.exists(path):
+        return send_file(path)
+    return jsonify({"error": "record.html not found"}), 404
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)

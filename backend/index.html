@@ -293,6 +293,7 @@
         const app = {
             conversationId: null,
             messages: [],
+            _audioUnlocked: false,
             audioCache: {},
 
             init() {
@@ -312,8 +313,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            user_id: 'web-user',
-                            system_message: 'You are a helpful AI assistant. Be concise and friendly.',
+                            user_id: 'web-user'
                         })
                     });
 
@@ -344,6 +344,23 @@
                     this.messages = data.messages;
                     this.render();
                     this.showStatus('Conversation loaded', 'success');
+
+                    // Autoplay latest assistant message if not already played
+                    try {
+                        const lastAssistant = [...this.messages].reverse().find(m => m.role === 'assistant' && m.content && m.content.trim());
+                        if (lastAssistant) {
+                            const played = JSON.parse(localStorage.getItem('tts_played') || '[]');
+                            if (!played.includes(lastAssistant.id)) {
+                                // attempt to autoplay (may be blocked by browser if no gesture)
+                                this.playTTS(lastAssistant.id, null);
+                                // mark as played to avoid repeated attempts
+                                played.push(lastAssistant.id);
+                                localStorage.setItem('tts_played', JSON.stringify(played));
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('autoplay check failed', e);
+                    }
                 } catch (error) {
                     this.showStatus('Error loading messages: ' + error.message, 'error');
                     this.createConversation();
@@ -353,6 +370,9 @@
             async sendMessage() {
                 const input = document.getElementById('messageInput');
                 const content = input.value.trim();
+
+                // Unlock audio on the user send gesture so autoplay later is allowed
+                try { this.ensureAudioUnlocked(); } catch (e) { /* ignore */ }
 
                 if (!content) return;
                 if (!this.conversationId) {
@@ -398,10 +418,24 @@
 
                     // Replace temp message and add assistant response
                     this.messages = this.messages.filter(m => !m.id.startsWith('temp-'));
-
-                    // Reload messages to get the full conversation
-                    await this.loadMessages();
-
+                    // If server returned an assistant_message, append it and autoplay TTS
+                    if (data && data.assistant_message) {
+                        this.messages.push(data.assistant_message);
+                        this.render();
+                        try {
+                            // attempt autoplay (may be blocked by browser if no gesture)
+                            this.playTTS(data.assistant_message.id, null);
+                            // mark played to avoid repeated autoplay
+                            const played = JSON.parse(localStorage.getItem('tts_played') || '[]');
+                            played.push(data.assistant_message.id);
+                            localStorage.setItem('tts_played', JSON.stringify(played));
+                        } catch (e) {
+                            console.warn('autoplay attempt failed', e);
+                        }
+                    } else {
+                        // Fallback: reload full messages
+                        await this.loadMessages();
+                    }
                 } catch (error) {
                     this.showStatus('Error sending message: ' + error.message, 'error');
                 } finally {
@@ -412,10 +446,13 @@
                 }
             },
 
-            async playTTS(messageId, button) {
+            async playTTS(messageId, button = null) {
+                // button may be null for autoplay attempts
                 try {
-                    button.disabled = true;
-                    button.textContent = '🔊 Loading...';
+                    if (button) {
+                        button.disabled = true;
+                        button.textContent = '🔊 Loading...';
+                    }
 
                     // Build a simple streaming URL the browser's <audio> can play
                     const streamUrl = `${API_BASE}/conversations/${this.conversationId}/tts_stream?message_id=${encodeURIComponent(messageId)}`;
@@ -445,17 +482,24 @@
 
                     // Set the streaming URL as the source and play
                     audioEl.src = streamUrl;
-                    try { await audioEl.play(); } catch (e) {
-                        // autoplay may be blocked; user can press play
+                    try {
+                        await audioEl.play();
+                    } catch (e) {
+                        // autoplay may be blocked; if this was an autoplay attempt, silently ignore; user can press play
                         console.warn('Autoplay prevented', e);
+                        if (button) {
+                            this.showStatus('Autoplay blocked by browser; press play on the audio control.', 'info');
+                        }
                     }
 
-                    button.textContent = '🔊 Play';
+                    if (button) {
+                        button.textContent = '🔊 Play';
+                    }
                 } catch (error) {
                     this.showStatus('TTS error: ' + (error.message || error), 'error');
-                    button.textContent = '🔊 TTS';
+                    if (button) button.textContent = '🔊 TTS';
                 } finally {
-                    button.disabled = false;
+                    if (button) button.disabled = false;
                 }
             },
 
@@ -573,7 +617,22 @@
                     event.preventDefault();
                     this.sendMessage();
                 }
-            }
+            },
+
+            ensureAudioUnlocked() {
+                // Call on a user gesture to allow autoplay later.
+                try {
+                    if (this._audioUnlocked) return;
+                    const Ctx = window.AudioContext || window.webkitAudioContext;
+                    if (!Ctx) { this._audioUnlocked = true; return; }
+                    const ac = new Ctx();
+                    // resume the context (must be user gesture)
+                    ac.resume().then(() => { this._audioUnlocked = true; try { ac.close(); } catch (e){} });
+                } catch (e) {
+                    console.warn('audio unlock failed', e);
+                    this._audioUnlocked = true;
+                }
+            },
         };
 
         // Initialize app when page loads
