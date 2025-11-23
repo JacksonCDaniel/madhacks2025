@@ -108,6 +108,8 @@
 	flex: 1;
 	overflow-y: auto;
 	padding: 10px;
+	/* Ensure last message isn't hidden behind the input area */
+	padding-bottom: 80px;
 	display: flex;
 	flex-direction: column;
 	gap: 12px;

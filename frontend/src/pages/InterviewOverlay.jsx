@@ -20,15 +20,25 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
     const [isTyping, setIsTyping] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const socketRef = useRef(null);
-    const messagesEndRef = useRef(null);
+    const messagesListRef = useRef(null);
 
-    // Auto-scroll to bottom
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Auto-scroll to bottom. Use the messages list element so we can
+    // scroll to the container's scrollHeight after layout changes.
+    const scrollToBottom = (behavior = "smooth") => {
+        const el = messagesListRef.current;
+        if (!el) return;
+        // Ensure layout has updated before scrolling
+        requestAnimationFrame(() => {
+            el.scrollTo({ top: el.scrollHeight, behavior });
+        });
     };
 
     useEffect(() => {
-        scrollToBottom();
+        const lastMsg = messages[messages.length - 1];
+        // If the assistant message is streaming, use `auto` to avoid
+        // smooth animation cutting off the live-updating content.
+        const behavior = lastMsg && lastMsg.isStreaming ? "auto" : "smooth";
+        scrollToBottom(behavior);
     }, [messages, isTyping]);
 
     // Initialize WebSocket connection
@@ -254,7 +264,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
 
                         {chatOpen && (
                             <div className="chat-container">
-                                <div className="messages-list">
+                                <div className="messages-list" ref={messagesListRef}>
                                     {messages.map(msg => (
                                         <div 
                                             key={msg.id} 
@@ -282,7 +292,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                                         </div>
                                     )}
                                     
-                                    <div ref={messagesEndRef} />
+                                    {/* spacer element removed: we scroll the container directly */}
                                 </div>
 
                                 <div className="input-container">
