@@ -21,8 +21,9 @@ export default function Settings({ onStart }) {
         `
         },
         "Strings": {
-            title: "Longest Substring Without Repeating Characters",
-            description: `Given a string s, find the length of the longest substring without duplicate characters.`,
+            title: `Longest Substring Without Repeating Characters`,
+            description: `Given a string s, find the length of the longest substring without duplicate characters.
+            `,
             starterCode: `class Solution(object):
     def lengthOfLongestSubstring(self, s):
         """
