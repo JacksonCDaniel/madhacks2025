@@ -92,6 +92,8 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
 
 client = Anthropic()
 model = 'claude-haiku-4-5-20251001'
+# Use temperature 0.0 for deterministic responses
+temperature = 0.0
 
 def call_haiku(messages):
     """Call Anthropic (Claude) via the `anthropic` package using the hardcoded system prompt.
@@ -104,7 +106,7 @@ def call_haiku(messages):
     # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
     response = client.messages.create(
         max_tokens=1024,
-        temperature=0.4,
+        temperature=temperature,
         messages=msgs,
         model=model,
         system=SYSTEM_PROMPT,
@@ -157,7 +159,7 @@ def stream_haiku(conversation_id):
     # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
     with client.messages.stream(
         max_tokens=1024,
-        temperature=0.4,
+        temperature=temperature,
         messages=msgs,
         model=model,
         system=SYSTEM_PROMPT,
