@@ -240,16 +240,17 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
             audioRef.current = audio;
 
             // When the browser reports the media can play (some data available),
-            // start a 5s timer. During this timer we keep buffering incoming
-            // LLM text. When the timer fires we'll call play() and flush text.
+            // start a short timer (previously 5s) — set to 0ms so we flush
+            // as soon as audio is ready. We still wait for `canplay` so text
+            // is only shown once audio data begins arriving.
             const onCanPlay = () => {
                 // mark that audio data is available
                 audioStartedRef.current = true;
 
                 if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+                // Use 0ms delay (immediate next tick) so audio and text start
+                // together as soon as possible after `canplay`.
                 bufferTimerRef.current = setTimeout(() => {
-                    // Attempt to start playback and flush buffered text only
-                    // once we've allowed extra buffering time.
                     const playPromise = audio.play();
                     if (playPromise && typeof playPromise.then === 'function') {
                         playPromise.then(() => {
@@ -268,7 +269,7 @@ export default function InterviewOverlay({ company, voice, details, onEnd }) {
                     }
 
                     bufferTimerRef.current = null;
-                }, 5000);
+                }, 0);
             };
 
             if (audio.addEventListener) {
