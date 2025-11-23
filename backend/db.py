@@ -1,19 +1,17 @@
 import sqlite3
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 
-_default_db_path = 'data.db'
-
+DB_PATH = 'data.db'
 
 def _now_iso():
-    return datetime.utcnow().isoformat() + 'Z'
+    return datetime.now(UTC).isoformat() + 'Z'
 
 
-def init_db(db_path: str = None):
+def init_db():
     """Initialize the SQLite DB and create tables if they don't exist."""
-    path = db_path or _default_db_path
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(DB_PATH)
     try:
         cur = conn.cursor()
         cur.execute('''
@@ -47,15 +45,13 @@ def init_db(db_path: str = None):
         conn.close()
 
 
-def _connect(db_path: str = None):
-    path = db_path or _default_db_path
-    conn = sqlite3.connect(path)
+def _connect():
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-
-def create_conversation(user_id=None, metadata=None, db_path: str = None):
-    conn = _connect(db_path)
+def create_conversation(user_id=None, metadata=None):
+    conn = _connect()
     try:
         cur = conn.cursor()
         conv_id = str(uuid.uuid4())
@@ -71,8 +67,8 @@ def create_conversation(user_id=None, metadata=None, db_path: str = None):
         conn.close()
 
 
-def get_conversation(conversation_id, db_path: str = None):
-    conn = _connect(db_path)
+def get_conversation(conversation_id):
+    conn = _connect()
     try:
         cur = conn.cursor()
         cur.execute('SELECT * FROM conversations WHERE id = ?', (conversation_id,))
@@ -92,8 +88,8 @@ def get_conversation(conversation_id, db_path: str = None):
         conn.close()
 
 
-def delete_conversation(conversation_id, db_path: str = None):
-    conn = _connect(db_path)
+def delete_conversation(conversation_id):
+    conn = _connect()
     try:
         cur = conn.cursor()
         cur.execute('DELETE FROM conversations WHERE id = ?', (conversation_id,))
@@ -106,8 +102,8 @@ def delete_conversation(conversation_id, db_path: str = None):
         conn.close()
 
 
-def insert_message(conversation_id, role, content, metadata=None, db_path: str = None):
-    conn = _connect(db_path)
+def insert_message(conversation_id, role, content, metadata=None):
+    conn = _connect()
     try:
         cur = conn.cursor()
         msg_id = str(uuid.uuid4())
@@ -126,8 +122,8 @@ def insert_message(conversation_id, role, content, metadata=None, db_path: str =
         conn.close()
 
 
-def get_messages(conversation_id, since=None, limit=100, db_path: str = None):
-    conn = _connect(db_path)
+def get_messages(conversation_id, since=None, limit=100):
+    conn = _connect()
     try:
         cur = conn.cursor()
         if since:
@@ -151,10 +147,10 @@ def get_messages(conversation_id, since=None, limit=100, db_path: str = None):
         conn.close()
 
 
-def mark_messages_summarized(message_ids, summary_message_id, db_path: str = None):
+def mark_messages_summarized(message_ids, summary_message_id):
     if not message_ids:
         return
-    conn = _connect(db_path)
+    conn = _connect()
     try:
         cur = conn.cursor()
         for mid in message_ids:

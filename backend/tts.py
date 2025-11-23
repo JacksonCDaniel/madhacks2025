@@ -1,7 +1,6 @@
 import os
 from fishaudio import FishAudio, TTSConfig
 
-STREAM_THRESHOLD_CHARS = int(os.environ.get('STREAM_THRESHOLD_CHARS', '3000'))
 MODEL_ID = os.environ.get('MODEL_ID', 'e58b0d7efca34eb38d5c4985e378abcb')
 
 client = FishAudio()

@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-import io
 import os
 import uuid
 from datetime import datetime, UTC
@@ -10,43 +9,27 @@ from flask_cors import CORS
 
 # Local modules
 from db import init_db, create_conversation, get_conversation, delete_conversation, insert_message, get_messages
-from claude import build_trimmed_history, call_haiku
-from redis_queue import enqueue_job, get_job
-from tts import synthesize_bytes, synthesize_stream, STREAM_THRESHOLD_CHARS
+from claude import build_trimmed_history, call_haiku, stream_haiku
+from tts import synthesize_stream
+import threading
+import queue
+
+# In-memory session store: session_id -> {text_q, audio_q, thread}
+SESSIONS = {}
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Configuration
-DATA_DB_PATH = os.environ.get("DATA_DB_PATH", "data.db")
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "5000"))
 TOKEN_BUDGET = int(os.environ.get("TOKEN_BUDGET", "8192"))
 
 # Initialize DB
-init_db(DATA_DB_PATH)
+init_db()
 
 # Helpers
 def now_iso():
     return datetime.now(UTC).isoformat() + "Z"
-
-# @app.route("/health", methods=["GET"])
-# def health():
-#     # Basic health check
-#     db_ok = True
-#     redis_ok = True
-#     try:
-#         # quick DB read
-#         _ = get_conversation("non-existent-id")
-#     except Exception:
-#         db_ok = False
-#     try:
-#         _ = get_job("non-existent-job-id")
-#     except Exception:
-#         # get_job may raise if Redis not available
-#         redis_ok = False
-#     status = {"status": "ok" if db_ok and redis_ok else "degraded", "db": "ok" if db_ok else "error", "redis": "ok" if redis_ok else "error"}
-#     return jsonify(status)
 
 @app.route('/conversations', methods=['POST'])
 def create_conversation_endpoint():
@@ -68,7 +51,7 @@ def delete_conversation_endpoint(conversation_id):
     deleted = delete_conversation(conversation_id)
     if not deleted:
         return jsonify({"error": "not found"}), 404
-    return ('', 204)
+    return '', 204
 
 @app.route('/conversations/<conversation_id>/messages', methods=['GET'])
 def list_messages_endpoint(conversation_id):
@@ -84,7 +67,6 @@ def post_message_endpoint(conversation_id):
     payload = request.get_json()
     role = payload.get('role', 'user')
     content = payload.get('content')
-    response_mode = payload.get('response_mode', 'sync')
     metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
 
     if not content or not isinstance(content, str) or not content.strip():
@@ -96,36 +78,21 @@ def post_message_endpoint(conversation_id):
     msg_id = insert_message(conversation_id=conversation_id, role=role, content=content, metadata=metadata)
 
     # For sync responses, call Claude Haiku immediately (trimmed)
-    if response_mode == 'sync':
-        history = build_trimmed_history(conversation_id, token_budget=TOKEN_BUDGET)
-        try:
-            assistant_text = call_haiku(history)
-        except Exception as e:
-            return jsonify({"error": "assistant call failed", "detail": str(e)}), 500
-        # persist assistant reply
-        assistant_id = insert_message(conversation_id=conversation_id, role='assistant', content=assistant_text, metadata={})
-        assistant_msg = {
-            "id": assistant_id,
-            "role": "assistant",
-            "content": assistant_text,
-            "created_at": now_iso(),
-            "metadata": {}
-        }
-        return jsonify({"assistant_message": assistant_msg}), 200
-    else:
-        # async: enqueue a long_response job
-        job = {
-            "job_id": str(uuid.uuid4()),
-            "type": "long_response",
-            "conversation_id": conversation_id,
-            "message_id": msg_id,
-            "payload": {"trigger_message_id": msg_id, "response_mode": "text"},
-            "created_at": now_iso()
-        }
-        enqueue_job(job)
-        # create placeholder assistant message with pending status
-        placeholder_id = insert_message(conversation_id=conversation_id, role='assistant', content='', metadata={"status": "pending", "job_id": job["job_id"]})
-        return jsonify({"job_id": job["job_id"], "placeholder_message_id": placeholder_id}), 202
+    history = build_trimmed_history(conversation_id, token_budget=TOKEN_BUDGET)
+    try:
+        assistant_text = call_haiku(history)
+    except Exception as e:
+        return jsonify({"error": "assistant call failed", "detail": str(e)}), 500
+    # persist assistant reply
+    assistant_id = insert_message(conversation_id=conversation_id, role='assistant', content=assistant_text, metadata={})
+    assistant_msg = {
+        "id": assistant_id,
+        "role": "assistant",
+        "content": assistant_text,
+        "created_at": now_iso(),
+        "metadata": {}
+    }
+    return jsonify({"assistant_message": assistant_msg}), 200
 
 @app.route('/conversations/<conversation_id>/tts', methods=['POST'])
 def tts_endpoint(conversation_id):
@@ -134,8 +101,6 @@ def tts_endpoint(conversation_id):
     payload = request.get_json()
     message_id = payload.get('message_id')
     text = payload.get('text')
-    voice = payload.get('voice')
-    response_mode = payload.get('response_mode', 'sync')
 
     if message_id:
         msgs = get_messages(conversation_id, limit=1000)
@@ -151,35 +116,14 @@ def tts_endpoint(conversation_id):
     if len(text_to_speak) > MAX_TEXT_CHARS:
         return jsonify({"error": f"text too long (max {MAX_TEXT_CHARS} chars)"}), 413
 
-    if response_mode == 'sync':
-        # choose convert() for small text, stream() for large
-        try:
-            if len(text_to_speak) <= STREAM_THRESHOLD_CHARS:
-                audio_bytes = synthesize_bytes(text_to_speak)
-                buf = io.BytesIO(audio_bytes)
-                buf.seek(0)
-                return send_file(buf, mimetype='audio/mpeg', as_attachment=False)
-            else:
-                # stream generator
-                def generate():
-                    for chunk in synthesize_stream(text_to_speak):
-                        yield chunk
-                return Response(generate(), mimetype='audio/mpeg')
-        except Exception as e:
-            return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
-    else:
-        # async: enqueue tts job
-        job = {
-            "job_id": str(uuid.uuid4()),
-            "type": "tts",
-            "conversation_id": conversation_id,
-            "message_id": message_id,
-            "payload": {"text": text_to_speak, "voice": voice},
-            "created_at": now_iso()
-        }
-        enqueue_job(job)
-        return jsonify({"job_id": job["job_id"]}), 202
-
+    try:
+        # stream generator
+        def generate():
+            for chunk in synthesize_stream(text_to_speak):
+                yield chunk
+        return Response(generate(), mimetype='audio/mpeg')
+    except Exception as e:
+        return jsonify({"error": "TTS generation failed", "detail": str(e)}), 500
 
 @app.route('/conversations/<conversation_id>/tts_stream', methods=['POST','GET'])
 def tts_stream_endpoint(conversation_id):
@@ -229,13 +173,6 @@ def tts_stream_endpoint(conversation_id):
     except Exception as e:
         return jsonify({"error": "TTS streaming failed", "detail": str(e)}), 500
 
-@app.route('/jobs/<job_id>', methods=['GET'])
-def get_job_endpoint(job_id):
-    job = get_job(job_id)
-    if not job:
-        return jsonify({"error": "not found"}), 404
-    return jsonify(job)
-
 @app.route('/conversations/<conversation_id>/export', methods=['GET'])
 def export_conversation(conversation_id):
     conv = get_conversation(conversation_id)
@@ -243,6 +180,116 @@ def export_conversation(conversation_id):
         return jsonify({"error": "not found"}), 404
     messages = get_messages(conversation_id, limit=10000)
     return jsonify({"conversation": conv, "messages": messages})
+
+
+@app.route('/conversations/<conversation_id>/stream_text')
+def stream_text(conversation_id):
+    """SSE endpoint that reads from a session's text queue.
+    Query param: ?session=<session_id>
+    """
+    session_id = request.args.get('session')
+    if not session_id or session_id not in SESSIONS:
+        return jsonify({"error": "session not found"}), 404
+    text_q = SESSIONS[session_id]['text_q']
+
+    def event_stream():
+        while True:
+            try:
+                item = text_q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if item is None:
+                break
+            yield f"data: {item}\n\n"
+
+    return Response(event_stream(), mimetype='text/event-stream', headers={"Cache-Control": "no-cache"})
+
+
+@app.route('/conversations/<conversation_id>/live_audio', methods=['POST','GET'])
+def live_audio(conversation_id):
+    """POST JSON { "text": "..." } -> streams audio bytes as chunked response by proxying synthesize_stream.
+    This is a minimal forwarder that turns text into audio stream for an <audio src=> element.
+    """
+    # Support GET for session streaming: if GET, expect ?session=<id>
+    if request.method == 'GET':
+        session_id = request.args.get('session')
+        if not session_id:
+            return jsonify({"error": "session required for GET"}), 400
+        if session_id not in SESSIONS:
+            return jsonify({"error": "session not found"}), 404
+        audio_q = SESSIONS[session_id]['audio_q']
+
+        def generate_from_queue():
+            while True:
+                try:
+                    data = audio_q.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+                if data is None:
+                    break
+                yield data
+
+        resp = Response(generate_from_queue(), mimetype='audio/mpeg', direct_passthrough=True)
+        resp.headers['Cache-Control'] = 'no-cache'
+        resp.headers['X-Accel-Buffering'] = 'no'
+        return resp
+
+    # For POST (direct synthesis), expect JSON with 'text'
+    session_id = request.args.get('session')
+    if not request.is_json:
+        return jsonify({"error": "expected JSON body"}), 400
+    payload = request.get_json()
+    text = payload.get('text')
+    if not text:
+        return jsonify({"error": "text required"}), 400
+
+    def generate_direct():
+        for chunk in synthesize_stream(text):
+            if isinstance(chunk, (bytes, bytearray, memoryview)):
+                yield bytes(chunk)
+            else:
+                yield str(chunk).encode('utf-8')
+    resp = Response(generate_direct(), mimetype='audio/mpeg', direct_passthrough=True)
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    return resp
+
+
+@app.route('/conversations/<conversation_id>/start_stream', methods=['POST'])
+def start_stream(conversation_id):
+    """Start an in-memory streaming session that runs stream_haiku and forwards text to FishAudio per chunk.
+    Returns: { session_id }
+    """
+    session_id = str(uuid.uuid4())
+    text_q = queue.Queue()
+    audio_q = queue.Queue()
+
+    def orchestrator():
+        try:
+            # For each text chunk from stream_haiku, put to text_q and synthesize audio for that chunk
+            for chunk in stream_haiku(conversation_id):
+                if chunk is None:
+                    continue
+                text_q.put(chunk)
+                # Synthesize audio for this chunk and push bytes to audio_q
+                try:
+                    for achunk in synthesize_stream(chunk):
+                        if isinstance(achunk, (bytes, bytearray, memoryview)):
+                            audio_q.put(bytes(achunk))
+                        else:
+                            audio_q.put(str(achunk).encode('utf-8'))
+                except Exception as e:
+                    print('synthesize_stream error', e)
+                    break
+        finally:
+            # signal completion
+            text_q.put(None)
+            audio_q.put(None)
+
+    th = threading.Thread(target=orchestrator, daemon=True)
+    SESSIONS[session_id] = {'text_q': text_q, 'audio_q': audio_q, 'thread': th}
+    th.start()
+    return jsonify({'session_id': session_id})
 
 @app.route('/')
 def index():
@@ -253,7 +300,7 @@ def index():
     return jsonify({"error": "index.html not found"}), 404
 
 @app.route('/record')
-def index():
+def record():
     path = os.path.join(os.path.dirname(__file__), 'record.html')
     if os.path.exists(path):
         return send_file(path)

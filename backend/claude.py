@@ -92,27 +92,16 @@ def build_trimmed_history(conversation_id: str, token_budget: int = None):
 
     return assembled
 
+client = Anthropic()
+model = 'claude-haiku-4-5-20251001'
 
 def call_haiku(messages):
     """Call Anthropic (Claude) via the `anthropic` package using the hardcoded system prompt.
     Messages must be a chronological list of dicts: {role, content}.
     Returns assistant text.
     """
-    client = Anthropic()
-    model = 'claude-haiku-4-5-20251001'
 
-    # Build structured messages array for the Messages API (only user/assistant roles)
-    msgs = []
-    for m in messages:
-        role = m.get('role')
-        content = m.get('content', '')
-        # map memory -> user (keep content as a short fact)
-        if role == 'memory':
-            msgs.append({"role": "user", "content": "Memory: " + content})
-        elif role == 'user':
-            msgs.append({"role": "user", "content": content})
-        elif role == 'assistant':
-            msgs.append({"role": "assistant", "content": content})
+    msgs = build_msg_ctx(messages)
 
     # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
     response = client.messages.create(
@@ -132,6 +121,22 @@ def call_haiku(messages):
     return '\n\n'.join(blocks).strip()
 
 
+def build_msg_ctx(messages):
+    # Build structured messages array for the Messages API (only user/assistant roles)
+    msgs = []
+    for m in messages:
+        role = m.get('role')
+        content = m.get('content', '')
+        # map memory -> user (keep content as a short fact)
+        if role == 'memory':
+            msgs.append({"role": "user", "content": "Memory: " + content})
+        elif role == 'user':
+            msgs.append({"role": "user", "content": content})
+        elif role == 'assistant':
+            msgs.append({"role": "assistant", "content": content})
+    return msgs
+
+
 def build_summary(messages_chunk):
     # Simple heuristic summary: concatenate first sentences up to limit
     texts = [m['content'] for m in messages_chunk]
@@ -144,3 +149,20 @@ def build_summary(messages_chunk):
 # helper to create a memory message after summarization
 def insert_summary_message(conversation_id, summary_text):
     return insert_message(conversation_id=conversation_id, role='memory', content=summary_text, metadata={})
+
+def stream_haiku(conversation_id):
+    # Build trimmed history synchronously
+    messages = build_trimmed_history(conversation_id)
+
+    msgs = build_msg_ctx(messages)
+
+    # Call the Anthropic Messages API and pass the system prompt as the top-level `system` parameter
+    with client.messages.stream(
+        max_tokens=1024,
+        temperature=0.4,
+        messages=msgs,
+        model=model,
+        system=SYSTEM_PROMPT,
+    ) as stream:
+        for text in stream.text_stream:
+            yield text
