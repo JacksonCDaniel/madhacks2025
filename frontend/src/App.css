@@ -77,6 +77,11 @@
 	overflow: hidden;
 	flex-shrink: 0;
 	width: 350px;
+	/* Prevent the chat panel from growing beyond the editor height
+	   and allow its flex children to shrink so the messages list can
+	   become scrollable instead of expanding the panel. */
+	max-height: 700px;
+	min-height: 0;
 }
 
 .chat-header {
@@ -91,6 +96,9 @@
 .chat-container {
 	background-color: #2e2e2e;
 	flex: 1;
+	/* Allow this flex item to properly constrain its height inside
+	   a parent with limited height so children with overflow can scroll. */
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
