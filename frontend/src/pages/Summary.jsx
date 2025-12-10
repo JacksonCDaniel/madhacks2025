@@ -2,11 +2,43 @@ import { useState } from "react";
 
 export default function Summary({ data, onClose }) {
     const [loading, setLoading] = useState(false);
+    const [summary, setSummary] = useState("");
+    const [showSummary, setShowSummary] = useState(false);
 
     const handleGenerate = () => {
         setLoading(true);
-        onGenerate();
+
+        const generatedSummary = `Interview Summary for session:\n\n${JSON.stringify(data, null, 2)}`;
+
+        setSummary(generatedSummary);
+        setShowSummary(true);
+        setLoading(false);
     };
+
+    const handleDownload = () => {
+        const blob = new Blob([summary], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "summary.txt";
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
+    if (showSummary) {
+        return (
+            <div className="summary-modal">
+                <div className="summary-container">
+                    <h1>Interview Summary</h1>
+                    <pre className="summary-text">{summary}</pre>
+                    <div className="summary-btn-container">
+                        <button onClick={onClose} className="skip-btn">Close</button>
+                        <button onClick={handleDownload} className="generate-btn">Download</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="summary-container">
@@ -21,7 +53,7 @@ export default function Summary({ data, onClose }) {
                     disabled={loading}
                     className="generate-btn"
                 >
-                    {loading ? "Generating..." : "Yes, generate summary"}
+                    Yes, generate summary
                 </button>
 
                 <button
